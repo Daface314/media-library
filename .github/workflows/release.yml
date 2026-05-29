@@ -1,19 +1,10 @@
-# This workflow runs automatically on GitHub whenever you push a version tag
-# (e.g. v1.0.0). It builds the Windows installer and attaches it to a
-# GitHub Release so anyone can download it.
-#
-# To trigger a release:
-#   git tag v1.0.0
-#   git push origin v1.0.0
-
 name: Build and Release
 
 on:
   push:
     tags:
-      - 'v*'   # matches v1.0.0, v1.2.3, etc.
+      - 'v*'
 
-# Needed so the workflow can create a GitHub Release and upload files to it
 permissions:
   contents: write
 
@@ -22,8 +13,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Check out source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -34,16 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build installer
+      - name: Build and publish release
         run: npm run dist
         env:
-          # Skips code-signing (no certificate needed for a personal/open-source app)
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          # Attach both the installer and the portable exe to the release
-          files: release/*.exe
-          # Auto-generates release notes from commit messages since the last tag
-          generate_release_notes: true
+          # GH_TOKEN lets electron-builder create the GitHub Release and upload the .exe
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
