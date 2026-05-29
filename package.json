@@ -1,0 +1,63 @@
+{
+  "name": "media-library",
+  "version": "0.1.0",
+  "description": "Personal media tracking desktop application",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "tsc && electron .",
+    "build": "tsc",
+    "start": "electron .",
+    "rebuild-sqlite": "electron-rebuild -f -w better-sqlite3",
+    "dist": "tsc && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.11.5",
+    "cross-env": "^10.1.0",
+    "electron": "^29.1.4",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.noahm.medialibrary",
+    "productName": "Media Library",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

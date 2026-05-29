@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Content Security Policy: limits what resources/scripts can run (security) -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Media Library</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+    <!-- ═══════════════════════════════════════
+         SIDEBAR
+    ════════════════════════════════════════ -->
+    <aside id="sidebar">
+
+        <div id="app-title">
+            <h1>Library</h1>
+        </div>
+
+        <!-- Tab navigation — clicking a button swaps the sidebar panel below -->
+        <nav id="sidebar-tabs">
+            <button class="tab-btn active" data-tab="all">
+                <span class="tab-icon">◈</span>
+                <span>All</span>
+            </button>
+            <button class="tab-btn" data-tab="search">
+                <span class="tab-icon">⌕</span>
+                <span>Search</span>
+            </button>
+            <button class="tab-btn" data-tab="genres">
+                <span class="tab-icon">⊞</span>
+                <span>Genres</span>
+            </button>
+            <button class="tab-btn" data-tab="mylist">
+                <span class="tab-icon">☰</span>
+                <span>My List</span>
+            </button>
+        </nav>
+
+        <!-- Sidebar panels — only one is visible at a time -->
+        <div id="sidebar-panel">
+
+            <!-- Search panel -->
+            <div class="panel" id="panel-search" style="display:none">
+                <input type="text" id="search-input" placeholder="Search titles..." />
+            </div>
+
+            <!-- Genres panel: populated dynamically by renderer.ts -->
+            <div class="panel" id="panel-genres" style="display:none">
+                <ul id="genre-list"></ul>
+            </div>
+
+            <!-- My List panel: filter by watch/read status -->
+            <div class="panel" id="panel-mylist" style="display:none">
+                <ul id="status-list">
+                    <li class="status-item" data-status="all">All</li>
+                    <li class="status-item" data-status="planning">Planning</li>
+                    <li class="status-item" data-status="in_progress">In Progress</li>
+                    <li class="status-item" data-status="completed">Completed</li>
+                    <li class="status-item" data-status="dropped">Dropped</li>
+                    <li class="status-item" data-status="on_hold">On Hold</li>
+                </ul>
+            </div>
+
+        </div>
+
+        <!-- Add Entry button pinned to sidebar bottom -->
+        <button id="add-media-btn">+ Add Entry</button>
+
+    </aside>
+
+
+    <!-- ═══════════════════════════════════════
+         MAIN CONTENT AREA
+    ════════════════════════════════════════ -->
+    <main id="content">
+
+        <header id="content-header">
+            <h2 id="content-title">All Media</h2>
+
+            <!-- Media type filter chips -->
+            <div id="type-filters">
+                <button class="filter-btn active" data-type="all">All</button>
+                <button class="filter-btn" data-type="movie">Movies</button>
+                <button class="filter-btn" data-type="show">Shows</button>
+                <button class="filter-btn" data-type="anime">Anime</button>
+                <button class="filter-btn" data-type="book">Books</button>
+                <button class="filter-btn" data-type="manga">Manga</button>
+            </div>
+        </header>
+
+        <!-- Media cards are injected here dynamically by renderer.ts -->
+        <div id="media-grid"></div>
+
+    </main>
+
+
+    <!-- ═══════════════════════════════════════
+         ADD MEDIA MODAL (dialog popup)
+    ════════════════════════════════════════ -->
+    <div id="modal-overlay" class="hidden">
+        <div id="modal">
+            <h3 id="modal-title">Add New Entry</h3>
+
+            <label>Title
+                <input type="text" id="input-title" placeholder="e.g. Cowboy Bebop" />
+            </label>
+
+            <label>Type
+                <select id="input-type">
+                    <option value="anime">Anime</option>
+                    <option value="movie">Movie</option>
+                    <option value="show">Show</option>
+                    <option value="book">Book</option>
+                    <option value="manga">Manga</option>
+                </select>
+            </label>
+
+            <label>Status
+                <select id="input-status">
+                    <option value="planning">Planning</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="dropped">Dropped</option>
+                    <option value="on_hold">On Hold</option>
+                </select>
+            </label>
+
+            <!-- Type-specific extra fields — shown/hidden by updateExtraFields() in renderer.ts -->
+            <div id="extra-fields">
+                <!-- Shown for: anime, show -->
+                <div class="extra-field hidden" id="field-episodes">
+                    <label>Episodes
+                        <input type="number" id="input-episodes" min="1" placeholder="e.g. 26" />
+                    </label>
+                </div>
+                <!-- Shown for: book -->
+                <div class="extra-field hidden" id="field-pages">
+                    <label>Page Count
+                        <input type="number" id="input-pages" min="1" placeholder="e.g. 412" />
+                    </label>
+                </div>
+                <!-- Shown for: manga -->
+                <div class="extra-field hidden" id="field-volumes">
+                    <label>Volumes
+                        <input type="number" id="input-volumes" min="1" placeholder="e.g. 20" />
+                    </label>
+                </div>
+            </div>
+
+            <!-- Using a div instead of label here intentionally.
+                 A <label> that wraps buttons will fire those buttons when the label
+                 text is clicked — which would delete chips unexpectedly. -->
+            <div class="field-group">Genres
+                <div class="genre-picker" id="genre-picker">
+                    <div id="selected-genres"></div>
+                    <input type="text" id="genre-search" placeholder="Search or add a genre..." autocomplete="off" />
+                    <ul id="genre-dropdown" class="hidden"></ul>
+                </div>
+            </div>
+
+            <label>Notes
+                <textarea id="input-notes" placeholder="Optional notes..."></textarea>
+            </label>
+
+            <div id="modal-buttons">
+                <button id="modal-cancel">Cancel</button>
+                <button id="modal-save">Save</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- renderer.ts compiles to dist/renderer/renderer.js
+         Path is relative from public/index.html to dist/ -->
+    <script src="../dist/renderer/renderer.js"></script>
+</body>
+</html>

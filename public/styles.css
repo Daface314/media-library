@@ -1,0 +1,699 @@
+/* ═══════════════════════════════════════════════════════════
+   CSS Custom Properties (Variables)
+   ─────────────────────────────────────────────────────────
+   Defined on :root so they're accessible everywhere.
+   To retheme the entire app, change values here only.
+   ═══════════════════════════════════════════════════════════ */
+:root {
+    --bg-primary:      #0f0f1a;   /* darkest — main content background */
+    --bg-secondary:    #1a1a2e;   /* sidebar background */
+    --bg-card:         #16213e;   /* media card background */
+    --bg-hover:        #0f3460;   /* hover / active state */
+    --accent:          #e94560;   /* primary highlight color */
+    --accent-dim:      #c73652;   /* darker accent for hover */
+    --text-primary:    #eaeaea;
+    --text-secondary:  #8888aa;
+    --border:          #2a2a4a;
+    --sidebar-width:   220px;
+    --header-height:   64px;
+    --radius:          10px;
+}
+
+/* ─── Reset ───────────────────────────────────────────────
+   Removes browser default spacing so layout is predictable.
+   box-sizing: border-box means width/height include padding,
+   not just the content — matches how most developers expect it. */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    display: flex;           /* lay sidebar and content side by side */
+    height: 100vh;           /* fill full viewport height */
+    overflow: hidden;        /* prevent body scroll — each section scrolls independently */
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   SIDEBAR
+   ═══════════════════════════════════════════════════════════ */
+#sidebar {
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);  /* prevent sidebar from shrinking */
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;  /* stack children vertically */
+    padding-top: 8px;
+}
+
+#app-title {
+    padding: 12px 20px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+#app-title h1 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+/* ── Tab Buttons ──────────────────────────────────────────── */
+#sidebar-tabs {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 8px;
+    gap: 2px;
+}
+
+.tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    background: none;
+    border: none;
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.875rem;
+    text-align: left;
+    width: 100%;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tab-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.tab-btn.active {
+    background: var(--bg-hover);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.tab-icon {
+    font-size: 1rem;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+/* ── Sidebar Panel (below tabs) ───────────────────────────── */
+#sidebar-panel {
+    flex: 1;           /* takes remaining height in the sidebar */
+    overflow-y: auto;  /* scroll if content overflows */
+    padding: 8px;
+}
+
+#search-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.12s;
+}
+
+#search-input:focus {
+    border-color: var(--accent);
+}
+
+#genre-list,
+#status-list {
+    list-style: none;  /* removes bullet points */
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.genre-item,
+.status-item {
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    transition: background 0.12s, color 0.12s;
+    user-select: none;  /* prevents text from being selected on click */
+}
+
+.genre-item:hover,
+.status-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.genre-item.active,
+.status-item.active {
+    color: var(--accent);
+    background: var(--bg-hover);
+}
+
+/* Genre item internals: label on the left, delete button on the right */
+.genre-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.genre-item-label {
+    flex: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.genre-item-count {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+/* Delete button — hidden until the genre item is hovered */
+.genre-delete-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0 2px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s;
+    flex-shrink: 0;
+}
+
+.genre-item:hover .genre-delete-btn {
+    opacity: 1;
+}
+
+.genre-delete-btn:hover {
+    color: var(--accent);
+}
+
+/* ── Add Entry Button ─────────────────────────────────────── */
+#add-media-btn {
+    margin: 12px;
+    padding: 10px 16px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    transition: background 0.12s;
+    flex-shrink: 0;
+}
+
+#add-media-btn:hover {
+    background: var(--accent-dim);
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN CONTENT AREA
+   ═══════════════════════════════════════════════════════════ */
+#content {
+    flex: 1;             /* takes all remaining width after sidebar */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;        /* prevents flex children from overflowing parent */
+}
+
+#content-header {
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 16px;
+}
+
+#content-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+/* ── Type Filter Chips ────────────────────────────────────── */
+#type-filters {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    padding: 5px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;      /* pill shape */
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.12s;
+}
+
+.filter-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.filter-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   MEDIA GRID
+   ═══════════════════════════════════════════════════════════ */
+#media-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 28px;
+    display: grid;
+    /* auto-fill: create as many columns as fit; minmax: each column 190–1fr wide */
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 14px;
+    align-content: start;  /* cards start at the top, not center */
+}
+
+.empty-message {
+    color: var(--text-secondary);
+    grid-column: 1 / -1;   /* span all columns */
+    text-align: center;
+    margin-top: 80px;
+    font-size: 0.9rem;
+}
+
+/* ── Media Card ───────────────────────────────────────────── */
+.media-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    position: relative;   /* needed so the delete-btn absolute position works */
+    cursor: default;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.media-card:hover {
+    transform: translateY(-3px);  /* subtle lift effect on hover */
+    border-color: var(--accent);
+}
+
+/* Colored left border per media type */
+.media-card.type-anime  { border-left: 3px solid #7c83fd; }
+.media-card.type-movie  { border-left: 3px solid #fd7c7c; }
+.media-card.type-show   { border-left: 3px solid #7cfdbc; }
+.media-card.type-book   { border-left: 3px solid #fdcc7c; }
+.media-card.type-manga  { border-left: 3px solid #d77cfd; }
+
+.card-type-badge {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-secondary);
+    margin-bottom: 7px;
+}
+
+.card-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.35;
+    margin-bottom: 9px;
+    /* Clamp to 2 lines, then "..." — prevents tall cards for long titles */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.card-status {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-bottom: 10px;
+}
+
+/* Status badge colors */
+.status-completed   { background: #1a4a2e; color: #7cfdbc; }
+.status-in_progress { background: #4a3a1a; color: #fdcc7c; }
+.status-planning    { background: #1a2a4a; color: #7c9ffd; }
+.status-dropped     { background: #4a1a1a; color: #fd7c7c; }
+.status-on_hold     { background: #3a1a4a; color: #d77cfd; }
+
+/* Extra field line (episodes / pages / volumes) */
+.card-extra {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+/* Tag chips at the bottom of each card */
+.card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 20px;
+}
+
+.tag {
+    font-size: 0.68rem;
+    padding: 2px 7px;
+    background: var(--bg-hover);
+    border-radius: 10px;
+    color: var(--text-secondary);
+}
+
+/* Edit + Delete buttons — grouped in the top-right corner, hidden until hover */
+.card-actions {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.media-card:hover .card-actions {
+    opacity: 1;
+}
+
+.edit-btn,
+.delete-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.78rem;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.12s, background 0.12s;
+}
+
+.edit-btn:hover {
+    color: #7c9ffd;
+    background: rgba(124, 159, 253, 0.12);
+}
+
+.delete-btn:hover {
+    color: var(--accent);
+    background: rgba(233, 69, 96, 0.12);
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   MODAL (Add Entry dialog)
+   ═══════════════════════════════════════════════════════════ */
+#modal-overlay {
+    position: fixed;       /* covers the entire screen regardless of scroll */
+    inset: 0;              /* shorthand: top: 0; right: 0; bottom: 0; left: 0 */
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;          /* ensure it's above everything else */
+}
+
+#modal-overlay.hidden {
+    display: none;
+}
+
+#modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    width: 420px;
+    max-width: 95vw;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+#modal h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+#modal label,
+#modal .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.label-hint {
+    font-weight: 400;
+    opacity: 0.7;
+}
+
+.extra-field.hidden {
+    display: none;
+}
+
+#modal input,
+#modal select,
+#modal textarea {
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.12s;
+}
+
+#modal input:focus,
+#modal select:focus,
+#modal textarea:focus {
+    border-color: var(--accent);
+}
+
+#modal select option {
+    background: var(--bg-card);
+}
+
+#modal textarea {
+    resize: vertical;
+    min-height: 72px;
+}
+
+#modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+#modal-cancel {
+    padding: 8px 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: border-color 0.12s, color 0.12s;
+}
+
+#modal-cancel:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+#modal-save {
+    padding: 8px 20px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: white;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: background 0.12s;
+}
+
+#modal-save:hover {
+    background: var(--accent-dim);
+}
+
+/* ─── Scrollbar Styling ───────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   GENRE PICKER (custom searchable multi-select)
+   ═══════════════════════════════════════════════════════════ */
+
+/* Outer container — looks like an input field */
+.genre-picker {
+    position: relative;    /* needed so the dropdown can be positioned relative to this */
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    transition: border-color 0.12s;
+    cursor: text;
+}
+
+.genre-picker:focus-within {
+    border-color: var(--accent);   /* highlight border when the search input is focused */
+}
+
+/* Row of selected genre chips */
+#selected-genres {
+    display: flex;
+    flex-wrap: wrap;    /* wrap to next line if many genres are selected */
+    gap: 5px;
+    margin-bottom: 4px;
+}
+
+/* Empty chips row takes no space */
+#selected-genres:empty {
+    margin-bottom: 0;
+}
+
+/* Individual selected genre chip */
+.genre-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px 2px 10px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+
+/* The × button inside each chip */
+.chip-remove {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.7rem;
+    line-height: 1;
+    padding: 0;
+    /* Fixed size so the hit area matches the visible × exactly */
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+    transition: color 0.1s;
+}
+
+.chip-remove:hover {
+    color: var(--accent);
+}
+
+/* The search input — no border since the container acts as the input box */
+#genre-search {
+    width: 100%;
+    background: none;
+    border: none !important;   /* override the general #modal input rule */
+    padding: 2px 4px !important;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    outline: none;
+}
+
+/* Dropdown list */
+#genre-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);   /* just below the picker container */
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    list-style: none;
+    max-height: 180px;
+    overflow-y: auto;
+    z-index: 200;   /* above the modal */
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+#genre-dropdown.hidden {
+    display: none;
+}
+
+/* Each item in the dropdown */
+.dropdown-item {
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+
+.dropdown-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* "Add new genre" option — styled differently to stand out */
+.dropdown-item.add-new {
+    color: var(--accent);
+    font-style: italic;
+}
+
+.dropdown-item.add-new:hover {
+    background: rgba(233, 69, 96, 0.1);
+    color: var(--accent);
+}
