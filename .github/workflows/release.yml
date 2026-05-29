@@ -24,9 +24,19 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build and publish release
+      - name: Build installer
         run: npm run dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          # GH_TOKEN lets electron-builder create the GitHub Release and upload the .exe
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List release folder
+        run: ls release/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
