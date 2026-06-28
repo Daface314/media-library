@@ -17,8 +17,8 @@ contextBridge.exposeInMainWorld('api', {
     // and returns a Promise that resolves with the result.
     // ipcRenderer.invoke() is the async "ask and wait for answer" call.
 
-    addMedia: (title: string, type: string, status: string, notes: string) =>
-        ipcRenderer.invoke('add-media', title, type, status, notes),
+    addMedia: (title: string, type: string, status: string, rating: number | null, notes: string) =>
+        ipcRenderer.invoke('add-media', title, type, status, rating, notes),
 
     getAllMedia: () =>
         ipcRenderer.invoke('get-all-media'),
@@ -47,12 +47,30 @@ contextBridge.exposeInMainWorld('api', {
     addMediaField: (mediaId: number, fieldName: string, fieldValue: string) =>
         ipcRenderer.invoke('add-media-field', mediaId, fieldName, fieldValue),
 
-    updateMedia: (id: number, title: string, type: string, status: string, notes: string) =>
-        ipcRenderer.invoke('update-media', id, title, type, status, notes),
+    updateMedia: (id: number, title: string, type: string, status: string, rating: number | null, notes: string) =>
+        ipcRenderer.invoke('update-media', id, title, type, status, rating, notes),
+
+    updateRating: (id: number, rating: number | null) =>
+        ipcRenderer.invoke('update-rating', id, rating),
 
     clearMediaTags: (id: number) =>
         ipcRenderer.invoke('clear-media-tags', id),
 
     clearMediaFields: (id: number) =>
         ipcRenderer.invoke('clear-media-fields', id),
+
+    searchJikan: (mediaType: string, query: string) =>
+        ipcRenderer.invoke('search-jikan', mediaType, query),
+
+    searchTmdb: (mediaType: string, query: string) =>
+        ipcRenderer.invoke('search-tmdb', mediaType, query),
+
+    getApiKey: (keyName: string) =>
+        ipcRenderer.invoke('get-api-key', keyName),
+
+    setApiKey: (keyName: string, value: string) =>
+        ipcRenderer.invoke('set-api-key', keyName, value),
+
+    getTmdbTvDetails: (showId: number) =>
+        ipcRenderer.invoke('get-tmdb-tv-details', showId),
 });

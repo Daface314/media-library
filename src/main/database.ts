@@ -80,6 +80,12 @@ export class MediaDatabase {
                 field_value TEXT
             );
         `);
+
+        // Drop the old title+type unique index if it exists from a previous version.
+        // Year lives in media_fields (not media), so we can't include it in a DB-level constraint.
+        // Same-title entries with different release years (remakes, reboots) are valid and must be allowed.
+        // The UI shows a "✓ In library" badge for matches detected at the app level instead.
+        this.db.exec(`DROP INDEX IF EXISTS idx_media_title_type;`);
     }
 
     // ─── Media CRUD ──────────────────────────────────────────────────────────
@@ -88,13 +94,12 @@ export class MediaDatabase {
     // The ? placeholders are filled in safely when you call .run() or .get().
     // This prevents SQL injection attacks.
 
-    addMedia(title: string, type: string, status: string, notes: string = ''): MediaEntry {
+    addMedia(title: string, type: string, status: string, rating: number | null, notes: string = ''): MediaEntry {
         const stmt = this.db.prepare(`
-            INSERT INTO media (title, type, status, notes)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO media (title, type, status, rating, notes)
+            VALUES (?, ?, ?, ?, ?)
         `);
-        const result = stmt.run(title, type, status, notes);
-        // lastInsertRowid is the auto-assigned id of the new row
+        const result = stmt.run(title, type, status, rating, notes);
         return this.getMediaById(result.lastInsertRowid as number)!;
     }
 
@@ -121,9 +126,16 @@ export class MediaDatabase {
     }
 
     searchMedia(query: string): MediaEntry[] {
-        const rows = this.db.prepare(
-            'SELECT * FROM media WHERE title LIKE ? ORDER BY date_added DESC'
-        ).all(`%${query}%`) as MediaEntry[];
+        // Also search the stored title_english field so entries saved with a Japanese
+        // title (filled by Jikan) are still found when the user types the English name.
+        const rows = this.db.prepare(`
+            SELECT DISTINCT m.*
+            FROM media m
+            LEFT JOIN media_fields mf
+                ON m.id = mf.media_id AND mf.field_name = 'title_english'
+            WHERE m.title LIKE ? OR mf.field_value LIKE ?
+            ORDER BY m.date_added DESC
+        `).all(`%${query}%`, `%${query}%`) as MediaEntry[];
         return rows.map(row => ({
             ...row,
             tags:   this.getTagsForMedia(row.id),
@@ -158,17 +170,21 @@ export class MediaDatabase {
         }));
     }
 
-    updateMedia(id: number, title: string, type: string, status: string, notes: string): void {
+    updateMedia(id: number, title: string, type: string, status: string, rating: number | null, notes: string): void {
         this.db.prepare(`
-            UPDATE media SET title = ?, type = ?, status = ?, notes = ?
+            UPDATE media SET title = ?, type = ?, status = ?, rating = ?, notes = ?
             WHERE id = ?
-        `).run(title, type, status, notes, id);
+        `).run(title, type, status, rating, notes, id);
     }
 
     deleteMedia(id: number): void {
         // ON DELETE CASCADE in the schema automatically deletes related rows
         // in media_tags and media_fields when a media row is deleted.
         this.db.prepare('DELETE FROM media WHERE id = ?').run(id);
+    }
+
+    updateRating(id: number, rating: number | null): void {
+        this.db.prepare('UPDATE media SET rating = ? WHERE id = ?').run(rating, id);
     }
 
     // Used when editing an entry — wipe all existing tags/fields so we can re-add the new set

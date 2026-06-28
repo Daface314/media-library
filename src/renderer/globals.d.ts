@@ -6,7 +6,7 @@
 
 interface Window {
     api: {
-        addMedia:      (title: string, type: string, status: string, notes: string) => Promise<any>;
+        addMedia:      (title: string, type: string, status: string, rating: number | null, notes: string) => Promise<any>;
         getAllMedia:   () => Promise<any[]>;
         searchMedia:  (query: string) => Promise<any[]>;
         getByStatus:  (status: string) => Promise<any[]>;
@@ -16,8 +16,14 @@ interface Window {
         deleteMedia:  (id: number) => Promise<void>;
         deleteTag:      (id: number) => Promise<void>;
         addMediaField:  (mediaId: number, fieldName: string, fieldValue: string) => Promise<void>;
-        updateMedia:    (id: number, title: string, type: string, status: string, notes: string) => Promise<void>;
+        updateMedia:    (id: number, title: string, type: string, status: string, rating: number | null, notes: string) => Promise<void>;
+        updateRating:   (id: number, rating: number | null) => Promise<void>;
         clearMediaTags: (id: number) => Promise<void>;
         clearMediaFields: (id: number) => Promise<void>;
+        searchJikan: (mediaType: string, query: string) => Promise<any[]>;
+        searchTmdb:  (mediaType: string, query: string) => Promise<{ results?: any[]; error?: string }>;
+        getApiKey:        (keyName: string) => Promise<string | null>;
+        setApiKey:        (keyName: string, value: string) => Promise<void>;
+        getTmdbTvDetails: (showId: number) => Promise<any | null>;
     };
 }

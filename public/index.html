@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Content Security Policy: limits what resources/scripts can run (security) -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://cdn.myanimelist.net https://image.tmdb.org" />
     <title>Media Library</title>
     <link rel="stylesheet" href="styles.css" />
 </head>
@@ -30,10 +30,6 @@
                 <span class="tab-icon">⌕</span>
                 <span>Search</span>
             </button>
-            <button class="tab-btn" data-tab="genres">
-                <span class="tab-icon">⊞</span>
-                <span>Genres</span>
-            </button>
             <button class="tab-btn" data-tab="mylist">
                 <span class="tab-icon">☰</span>
                 <span>My List</span>
@@ -48,18 +44,14 @@
                 <input type="text" id="search-input" placeholder="Search titles..." />
             </div>
 
-            <!-- Genres panel: populated dynamically by renderer.ts -->
-            <div class="panel" id="panel-genres" style="display:none">
-                <ul id="genre-list"></ul>
-            </div>
-
             <!-- My List panel: filter by watch/read status -->
             <div class="panel" id="panel-mylist" style="display:none">
                 <ul id="status-list">
                     <li class="status-item" data-status="all">All</li>
-                    <li class="status-item" data-status="planning">Planning</li>
+                    <li class="status-item" data-status="planning">Plan to Watch</li>
                     <li class="status-item" data-status="in_progress">In Progress</li>
                     <li class="status-item" data-status="completed">Completed</li>
+                    <li class="status-item" data-status="rewatch">Rewatch</li>
                     <li class="status-item" data-status="dropped">Dropped</li>
                     <li class="status-item" data-status="on_hold">On Hold</li>
                 </ul>
@@ -69,6 +61,7 @@
 
         <!-- Add Entry button pinned to sidebar bottom -->
         <button id="add-media-btn">+ Add Entry</button>
+        <button id="settings-btn" title="Settings">⚙ Settings</button>
 
     </aside>
 
@@ -90,10 +83,27 @@
                 <button class="filter-btn" data-type="book">Books</button>
                 <button class="filter-btn" data-type="manga">Manga</button>
             </div>
+
+            <button id="genre-filter-btn">Genres</button>
+
+            <button id="sort-btn" title="Toggle sort order">A → Z</button>
         </header>
 
-        <!-- Media cards are injected here dynamically by renderer.ts -->
-        <div id="media-grid"></div>
+        <!-- Genre filter dropdown — lives outside the header so it pushes the grid down when open -->
+        <div id="genre-filter-dropdown" class="hidden">
+            <div id="genre-filter-mode-row">
+                <span class="genre-mode-label">Match:</span>
+                <button class="genre-mode-btn active" data-mode="and">ALL (AND)</button>
+                <button class="genre-mode-btn" data-mode="or">ANY (OR)</button>
+                <button id="genre-filter-clear">Clear</button>
+            </div>
+            <ul id="genre-filter-list"></ul>
+        </div>
+
+        <!-- Scroll wrapper: this div scrolls. The grid inside stays at natural height. -->
+        <div id="grid-scroll-wrapper">
+            <div id="media-grid"></div>
+        </div>
 
     </main>
 
@@ -102,12 +112,13 @@
          ADD MEDIA MODAL (dialog popup)
     ════════════════════════════════════════ -->
     <div id="modal-overlay" class="hidden">
+        <!-- Cover preview — appears to the right of the modal when an auto-fill result is chosen -->
+        <div id="modal-cover-preview" class="hidden">
+            <img id="modal-cover-img" src="" alt="" />
+        </div>
+
         <div id="modal">
             <h3 id="modal-title">Add New Entry</h3>
-
-            <label>Title
-                <input type="text" id="input-title" placeholder="e.g. Cowboy Bebop" />
-            </label>
 
             <label>Type
                 <select id="input-type">
@@ -119,23 +130,71 @@
                 </select>
             </label>
 
+            <!-- Auto-fill section — visible only when type is anime or manga -->
+            <div id="jikan-section" class="hidden">
+                <div class="field-group">Auto-fill from MyAnimeList
+                    <div id="jikan-search-row">
+                        <input type="text" id="jikan-query" placeholder="Search title to auto-fill..." autocomplete="off" />
+                        <button id="jikan-search-btn" type="button">Search</button>
+                    </div>
+                    <ul id="jikan-results" class="hidden"></ul>
+                </div>
+            </div>
+
+            <!-- Auto-fill section — visible only when type is movie or show -->
+            <div id="tmdb-section" class="hidden">
+                <div class="field-group">Auto-fill from TMDB
+                    <div id="tmdb-search-row">
+                        <input type="text" id="tmdb-query" placeholder="Search title to auto-fill..." autocomplete="off" />
+                        <button id="tmdb-search-btn" type="button">Search</button>
+                    </div>
+                    <ul id="tmdb-results" class="hidden"></ul>
+                </div>
+            </div>
+
+            <!-- Title comes after auto-fill so it acts as an override when Jikan fills it in -->
+            <label>Title
+                <input type="text" id="input-title" placeholder="e.g. Cowboy Bebop" />
+            </label>
+
             <label>Status
                 <select id="input-status">
-                    <option value="planning">Planning</option>
+                    <option value="planning">Plan to Watch</option>
                     <option value="in_progress">In Progress</option>
                     <option value="completed">Completed</option>
+                    <option value="rewatch">Rewatch</option>
                     <option value="dropped">Dropped</option>
                     <option value="on_hold">On Hold</option>
                 </select>
             </label>
 
+            <!-- Star rating — using div not label to avoid click-on-text activating buttons -->
+            <div class="field-group">Rating
+                <div id="star-rating">
+                    <button class="star" data-value="1" type="button">★</button>
+                    <button class="star" data-value="2" type="button">★</button>
+                    <button class="star" data-value="3" type="button">★</button>
+                    <button class="star" data-value="4" type="button">★</button>
+                    <button class="star" data-value="5" type="button">★</button>
+                </div>
+            </div>
+
             <!-- Type-specific extra fields — shown/hidden by updateExtraFields() in renderer.ts -->
             <div id="extra-fields">
                 <!-- Shown for: anime, show -->
                 <div class="extra-field hidden" id="field-episodes">
-                    <label>Episodes
-                        <input type="number" id="input-episodes" min="1" placeholder="e.g. 26" />
-                    </label>
+                    <div class="episode-fields">
+                        <!-- Shown only when status is in_progress — toggled by updateCurrentEpisodeVisibility() -->
+                        <div id="current-episode-wrapper" class="hidden">
+                            <label>Current Episode
+                                <input type="number" id="input-current-episode" min="1" placeholder="e.g. 5" />
+                            </label>
+                            <span class="episode-sep">/</span>
+                        </div>
+                        <label id="total-episodes-label">Total Episodes
+                            <input type="number" id="input-episodes" min="1" placeholder="e.g. 26" />
+                        </label>
+                    </div>
                 </div>
                 <!-- Shown for: book -->
                 <div class="extra-field hidden" id="field-pages">
@@ -163,7 +222,7 @@
             </div>
 
             <label>Notes
-                <textarea id="input-notes" placeholder="Optional notes..."></textarea>
+                <textarea id="input-notes" placeholder="Your personal notes..."></textarea>
             </label>
 
             <div id="modal-buttons">
@@ -173,6 +232,36 @@
         </div>
     </div>
 
+
+    <!-- ═══════════════════════════════════════
+         SETTINGS MODAL
+    ════════════════════════════════════════ -->
+    <div id="settings-overlay" class="hidden">
+        <div id="settings-modal">
+            <h3>Settings</h3>
+
+            <label>TMDB API Key
+                <span class="label-hint">Get a free key at themoviedb.org → Settings → API</span>
+                <input type="text" id="tmdb-key-input" placeholder="Paste your API key here..." />
+            </label>
+
+            <div id="settings-buttons">
+                <button id="settings-cancel">Cancel</button>
+                <button id="settings-save">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         DETAIL VIEW MODAL (read-only)
+    ════════════════════════════════════════ -->
+    <!-- Clicking a card opens this. Content is built dynamically by openDetailModal(). -->
+    <div id="detail-overlay" class="hidden">
+        <div id="detail-modal"></div>
+    </div>
+
+    <!-- Toast notification container — populated by showToast() in renderer.ts -->
+    <div id="toast-container"></div>
 
     <!-- renderer.ts compiles to dist/renderer/renderer.js
          Path is relative from public/index.html to dist/ -->

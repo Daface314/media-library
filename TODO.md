@@ -70,3 +70,19 @@ Personal notes file. Add anything you want to track here.
 ## Questions / Notes
 
 <!-- Scratch pad — anything you want to remember or come back to -->
+
+## Plan/TODO
+
+<!-- Scratch pad — anything you want to remember or come back to -->
+1. Fix main display of entries
+2. Edit Entries
+3. Ratings
+4. Delete confirmation (change delete button look)
+5. Sort alphabetically
+6. add keyboard shortcuts
+
+later
+1. Potential web scraping for images, descriptions
+
+Simple UI/UX fixes
+1. make delete genre button bigger (check other buttons)

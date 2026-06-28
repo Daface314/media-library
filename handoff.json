@@ -1,0 +1,204 @@
+{
+  "project": "Media Library",
+  "description": "Personal media tracking desktop app — Electron + TypeScript + SQLite. Tracks shows, anime, movies, books, and manga.",
+  "location": "C:\\Users\\noahm\\OneDrive\\VSCode\\Projects\\media-library",
+  "github": "https://github.com/Daface314/media-library",
+  "version": "0.1.0",
+  "last_updated": "2026-06-10",
+
+  "user_context": {
+    "background": "Java/C++ programmer, new to TypeScript/web/SQL",
+    "preferences": [
+      "Frequent inline comments explaining TypeScript/web syntax via Java or C++ analogies",
+      "Responses should be reasonably concise but thorough when explaining new concepts",
+      "Never introduce horizontal scrollbars anywhere in the UI"
+    ]
+  },
+
+  "tech_stack": {
+    "runtime": "Electron 29 (Chromium renderer + Node.js main)",
+    "language": "TypeScript 5.3, compiled with tsc",
+    "database": "SQLite via better-sqlite3 (native module — requires asarUnpack)",
+    "bundler": "electron-builder 24 (NSIS installer + portable)",
+    "ci": "GitHub Actions (release.yml) — triggers on v* tags, builds on windows-latest, uploads .exe to GitHub Release"
+  },
+
+  "project_structure": {
+    "src/main/main.ts": "Electron main process, IPC handlers, DB + config init. Config stored at userData/config.json for API keys.",
+    "src/main/database.ts": "MediaDatabase class — all SQLite logic, CRUD for media/tags/fields/rating",
+    "src/main/preload.ts": "contextBridge security bridge — exposes window.api to renderer",
+    "src/renderer/renderer.ts": "All UI logic — state, card rendering, modals (add/edit/detail/settings), Jikan/TMDB search, genre picker, filters, auto-refresh",
+    "src/renderer/globals.d.ts": "TypeScript declaration for window.api (top-level interface Window, NOT export {} — would crash renderer)",
+    "public/index.html": "App shell HTML — sidebar, media grid, add/edit modal, detail modal, settings modal",
+    "public/styles.css": "Dark theme CSS with custom properties",
+    ".github/workflows/release.yml": "CI release pipeline",
+    "package.json": "Scripts: dev (tsc+electron), dist (tsc+electron-builder --publish never)"
+  },
+
+  "database_schema": {
+    "media": "id, title, type, status, rating INTEGER, date_added, notes",
+    "tags": "id, name UNIQUE",
+    "media_tags": "media_id FK→media.id CASCADE, tag_id FK→tags.id CASCADE — many-to-many join",
+    "media_fields": "id, media_id FK→media.id CASCADE, field_name, field_value — flexible key-value store for all per-entry extras"
+  },
+
+  "media_fields_keys": {
+    "image_url": "Cover poster URL (from Jikan large_image_url or TMDB w500). Used on cards and detail view.",
+    "description": "Plot synopsis auto-filled from Jikan/TMDB. NOT editable in modal — set only via auto-fill or startup refresh.",
+    "title_english": "English title for anime/manga where main title is Japanese. Searched alongside media.title in searchMedia query.",
+    "episodes": "Total episode count (anime/show). Displayed as part of episode progress.",
+    "current_episode": "Episode the user is currently on. Only saved when status = 'in_progress'. Shown as 'Ep X / Y'.",
+    "pages": "Page count for books.",
+    "volumes": "Volume count for manga.",
+    "year": "Release year. Auto-filled from Jikan/TMDB. NOT editable in modal — set only via auto-fill or startup refresh. Shown on cards and detail view."
+  },
+
+  "ipc_api": {
+    "note": "All methods on window.api in preload.ts map 1:1 to ipcMain.handle() names in main.ts",
+    "methods": [
+      "addMedia(title, type, status, rating, notes) → MediaEntry",
+      "getAllMedia() → MediaEntry[]",
+      "searchMedia(query) → MediaEntry[]  — searches both title and media_fields title_english via LEFT JOIN",
+      "getByStatus(status) → MediaEntry[]",
+      "getByTag(tagName) → MediaEntry[]",
+      "getAllTags() → { id, name, count }[]",
+      "addTagToMedia(mediaId, tagName) → void",
+      "deleteMedia(id) → void",
+      "deleteTag(id) → void",
+      "addMediaField(mediaId, fieldName, fieldValue) → void",
+      "updateMedia(id, title, type, status, rating, notes) → void",
+      "updateRating(id, rating) → void  — lightweight rating-only update, used by card star clicks",
+      "clearMediaTags(id) → void",
+      "clearMediaFields(id) → void",
+      "searchJikan(mediaType, query) → any[]  — Jikan v4 API, anime or manga, no key needed",
+      "searchTmdb(mediaType, query) → { results?, error? }  — TMDB search, requires stored API key",
+      "getTmdbTvDetails(showId) → any  — fetches /tv/{id} for episode count (not in search results)",
+      "getApiKey(keyName) → string | null  — reads from userData/config.json",
+      "setApiKey(keyName, value) → void   — writes to userData/config.json"
+    ]
+  },
+
+  "renderer_state": {
+    "currentTab": "string — 'all' | 'search' | 'genres' | 'mylist'",
+    "currentTypeFilter": "string — 'all' | 'anime' | 'movie' | 'show' | 'book' | 'manga'",
+    "currentStatusFilter": "string — status value or 'all'",
+    "activeTagFilter": "string | null — genre name to filter by",
+    "currentSort": "'az' | 'za' — alphabetical sort direction, default 'az'",
+    "allGenres": "string[] — full genre name list from DB, kept in sync when modal opens",
+    "selectedGenres": "Set<string> — genres selected in the currently open modal",
+    "editingEntryId": "number | null — null = add mode, number = edit mode for that entry's id",
+    "currentRating": "number | null — star rating (1-5) selected in the open modal",
+    "currentImageUrl": "string | null — cover URL from auto-fill, saved to media_fields on save",
+    "currentTitleEnglish": "string | null — English title from Jikan, saved to media_fields as title_english",
+    "currentYear": "string | null — release year from auto-fill, saved to media_fields as year. No UI input — auto-fill only.",
+    "currentDescription": "string | null — synopsis from auto-fill, saved to media_fields as description. No UI input — auto-fill only."
+  },
+
+  "statuses": {
+    "planning": "Displayed as 'Plan to Watch' — stored value is still 'planning' to preserve existing data",
+    "in_progress": "In Progress",
+    "completed": "Completed",
+    "rewatch": "Rewatch — added later, stored as 'rewatch'",
+    "dropped": "Dropped",
+    "on_hold": "On Hold"
+  },
+
+  "modal_field_order": [
+    "Type (select) — must be first so Jikan/TMDB section visibility is set immediately",
+    "Jikan section (hidden unless type = anime/manga)",
+    "TMDB section (hidden unless type = movie/show)",
+    "Title (override — auto-filled by Jikan/TMDB but editable)",
+    "Status (select)",
+    "Rating (5 star picker)",
+    "Extra fields: Episodes (Current / Total, shown for anime/show) | Pages (book) | Volumes (manga)",
+    "  Note: Current Episode only shown when status = in_progress",
+    "Genres (searchable multi-select dropdown)",
+    "Notes (personal notes, untouched by auto-fill)",
+    "Modal buttons (Cancel / Save)",
+    "NOTE: Year and Description are intentionally absent from the modal — they are auto-fill/refresh only"
+  ],
+
+  "card_layout": {
+    "cover_image": "Top of card, edge-to-edge, 200px tall. Inserted via DOM (not innerHTML) to set img.src safely.",
+    "type_badge": "Small uppercase label below cover",
+    "title": "Clamped to 2 lines with text-overflow ellipsis",
+    "status_row": "Single flex row: [status badge] [year if present] [episode info] [5 star rating].",
+    "tags": "Genre chips at the bottom",
+    "card_actions": "Edit (✎) and Delete (✕) buttons, always visible at top-right with semi-transparent background"
+  },
+
+  "startup_refresh": {
+    "trigger": "DOMContentLoaded — fired with 'void refreshAllEntries()' (non-blocking) after initial loadMedia/loadGenres",
+    "function": "refreshAllEntries() in renderer.ts",
+    "scope": "All entries except books (Jikan/TMDB have no book support)",
+    "order": "Most recently added first (follows getAllMedia() ORDER BY date_added DESC)",
+    "delays": "1000ms between Jikan requests (anime/manga), 350ms between TMDB requests (movie/show)",
+    "jikan_fallback": "Tries title_english first, then item.title as a second query if the first returns empty",
+    "fields_refreshed": ["image_url", "description", "title_english", "year", "episodes", "volumes"],
+    "fields_preserved": "current_episode and any other non-AUTO_FILL_KEYS fields are carried over unchanged",
+    "genres": "New genres from API are added; existing genres are never removed (preserves manually added ones)",
+    "completion": "Shows 'Metadata refresh complete.' toast when all entries are processed",
+    "toast": "Toast stays visible until user dismisses it with the × button — no auto-dismiss"
+  },
+
+  "key_design_decisions": [
+    "globals.d.ts uses top-level 'interface Window' (NOT export {}) — export {} compiles to Object.defineProperty(exports,...) which crashes in sandboxed renderer browser context",
+    "Genres field uses <div class='field-group'> NOT <label> — clicking a <label> activates the first focusable child, which would trigger chip-remove buttons unexpectedly",
+    "openGenrePicker() and initExtraFields() use data-wired flag to prevent re-attaching event listeners each time the modal opens",
+    "Genre dropdown items use mousedown instead of click so they fire BEFORE the input's blur event hides the dropdown",
+    "better-sqlite3 listed in asarUnpack so the native .node binary is not packed into the ASAR archive",
+    "Database stored at app.getPath('userData') — survives app reinstall, isolated per OS user",
+    "electron-builder uses --publish never flag; GitHub Release asset upload handled by softprops/action-gh-release@v2 action",
+    "Card stars are generated inside the innerHTML template (not inserted via DOM after the fact) — insertAdjacentElement was silently failing for some entries",
+    "Jikan/TMDB API calls run in the main process (not renderer) to keep the renderer sandboxed and avoid CSP connect-src issues",
+    "TMDB TV episode count requires a separate /tv/{id} detail call — the search endpoint only returns genre_ids, not episode count",
+    "updateRating() is a separate lightweight IPC call so card star clicks update the DB without reloading the entire grid",
+    "current_episode is only saved when status = in_progress, and the input is hidden+cleared when status changes away from in_progress",
+    "Never add horizontal scrollbars anywhere in the UI — use min-width:0 on flex children, overflow-x:hidden on containers",
+    "year and description have no modal input fields — they are state variables (currentYear, currentDescription) set by auto-fill and saved on entry save",
+    "Toast notifications do not auto-dismiss — each toast has a × button the user must click to remove it"
+  ],
+
+  "autofill_apis": {
+    "jikan": {
+      "url": "https://api.jikan.moe/v4/{anime|manga}?q=QUERY&limit=12&sfw=true",
+      "key_required": false,
+      "covers": ["anime", "manga"],
+      "fields_filled": ["title", "description (synopsis)", "episodes/volumes", "genres", "image_url (large_image_url)", "title_english", "year (from year/aired.from/published.from)"]
+    },
+    "tmdb": {
+      "url": "https://api.themoviedb.org/3/search/{movie|tv}",
+      "key_required": true,
+      "key_storage": "userData/config.json as 'tmdb_api_key', managed via Settings modal",
+      "image_cdn": "https://image.tmdb.org/t/p/w92 (thumbnails) and w500 (saved)",
+      "covers": ["movie", "show"],
+      "fields_filled": ["title (title/name)", "description (overview)", "genres (resolved from genre_ids)", "image_url", "year (release_date/first_air_date)", "episodes (extra /tv/{id} call for shows)"]
+    }
+  },
+
+  "build_and_release": {
+    "local_dev": "npm run dev  (from media-library/ directory)",
+    "local_build": "npm run dist  (requires Admin or Developer Mode for symlink creation on Windows)",
+    "release_process": [
+      "git tag v1.x.x",
+      "git push origin v1.x.x",
+      "GitHub Actions builds on windows-latest and uploads both .exe files to the GitHub Release"
+    ],
+    "outputs": [
+      "release/Media Library Setup 0.1.0.exe — NSIS installer (recommended for end users)",
+      "release/Media Library 0.1.0.exe — Portable executable (no install needed)"
+    ]
+  },
+
+  "known_issues_and_fixes": [
+    "better-sqlite3 must be rebuilt for the target Electron version: npm run rebuild-sqlite",
+    "After Node.js install, must restart VSCode/terminal for PATH to update",
+    "Local dist build may fail with symlink error — run as Administrator or enable Windows Developer Mode",
+    "GitHub auth: configured for Daface314; if wrong account appears, clear Windows Credential Manager"
+  ],
+
+  "status": {
+    "last_release": "v1.0.2",
+    "active_development": "Many features added since last release — no new tag/release created yet"
+  }
+}

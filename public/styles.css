@@ -131,15 +131,13 @@ body {
     border-color: var(--accent);
 }
 
-#genre-list,
 #status-list {
-    list-style: none;  /* removes bullet points */
+    list-style: none;
     display: flex;
     flex-direction: column;
     gap: 1px;
 }
 
-.genre-item,
 .status-item {
     padding: 8px 12px;
     border-radius: var(--radius);
@@ -147,67 +145,141 @@ body {
     font-size: 0.85rem;
     color: var(--text-secondary);
     transition: background 0.12s, color 0.12s;
-    user-select: none;  /* prevents text from being selected on click */
+    user-select: none;
 }
 
-.genre-item:hover,
 .status-item:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
 }
 
-.genre-item.active,
 .status-item.active {
     color: var(--accent);
     background: var(--bg-hover);
 }
 
-/* Genre item internals: label on the left, delete button on the right */
-.genre-item {
+/* ── Genre filter dropdown (header) ───────────────────────── */
+
+#genre-filter-btn {
+    padding: 5px 12px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    transition: color 0.12s, border-color 0.12s;
+}
+
+#genre-filter-btn:hover,
+#genre-filter-btn.active {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
+#genre-filter-btn.active {
+    color: var(--accent);
+}
+
+#genre-filter-dropdown.hidden { display: none; }
+
+/* Full-width panel between the header and the grid — pushes grid down when open */
+#genre-filter-dropdown {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* AND / OR row at the top of the dropdown */
+#genre-filter-mode-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-}
-
-.genre-item-label {
-    flex: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.genre-item-count {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    opacity: 0.7;
-}
-
-/* Delete button — hidden until the genre item is hovered */
-.genre-delete-btn {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 0.9rem;
-    padding: 0 2px;
-    line-height: 1;
-    opacity: 0;
-    transition: opacity 0.12s, color 0.12s;
+    gap: 8px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
 
-.genre-item:hover .genre-delete-btn {
-    opacity: 1;
+.genre-mode-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
 }
 
-.genre-delete-btn:hover {
+.genre-mode-btn {
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.genre-mode-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+#genre-filter-clear {
+    margin-left: auto;
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+}
+
+#genre-filter-clear:hover {
     color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Genre chips laid out horizontally, wrapping to new rows as needed */
+#genre-filter-list {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    flex-direction: row;
+    gap: 8px;
+    padding: 14px 20px;
+    margin: 0;
+}
+
+.genre-filter-item {
+    padding: 5px 14px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 20px;   /* pill shape */
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+    white-space: nowrap;
+}
+
+.genre-filter-item:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+.genre-filter-item.active {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
 }
 
 /* ── Add Entry Button ─────────────────────────────────────── */
 #add-media-btn {
-    margin: 12px;
+    margin: 12px 12px 4px;
     padding: 10px 16px;
     background: var(--accent);
     color: white;
@@ -223,6 +295,25 @@ body {
 
 #add-media-btn:hover {
     background: var(--accent-dim);
+}
+
+/* ── Settings Button ──────────────────────────────────────── */
+#settings-btn {
+    margin: 0 12px 12px;
+    padding: 7px 16px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: color 0.12s, border-color 0.12s;
+    flex-shrink: 0;
+}
+
+#settings-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
 }
 
 
@@ -286,13 +377,45 @@ body {
     color: white;
 }
 
+/* Sort toggle button — sits to the right of the type filter chips */
+#sort-btn {
+    padding: 5px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.12s;
+}
+
+#sort-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+#sort-btn.active {
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    MEDIA GRID
    ═══════════════════════════════════════════════════════════ */
-#media-grid {
+/* Scroll container — handles overflow so the grid inside stays at natural height */
+#grid-scroll-wrapper {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;   /* lets this flex child shrink so overflow-y kicks in */
+}
+
+#media-grid {
     padding: 24px 28px;
     display: grid;
     /* auto-fill: create as many columns as fit; minmax: each column 190–1fr wide */
@@ -316,7 +439,7 @@ body {
     border-radius: 12px;
     padding: 14px;
     position: relative;   /* needed so the delete-btn absolute position works */
-    cursor: default;
+    cursor: pointer;      /* cards are clickable — opens detail view */
     transition: transform 0.15s ease, border-color 0.15s ease;
 }
 
@@ -353,27 +476,37 @@ body {
     overflow: hidden;
 }
 
+/* Row: status badge on the left, episode info on the right */
+.card-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
 .card-status {
     display: inline-block;
     font-size: 0.72rem;
     font-weight: 500;
     padding: 3px 9px;
     border-radius: 20px;
-    margin-bottom: 10px;
+    flex-shrink: 0;
 }
 
 /* Status badge colors */
 .status-completed   { background: #1a4a2e; color: #7cfdbc; }
 .status-in_progress { background: #4a3a1a; color: #fdcc7c; }
 .status-planning    { background: #1a2a4a; color: #7c9ffd; }
+.status-rewatch     { background: #1a3a3a; color: #7cf0fd; }
 .status-dropped     { background: #4a1a1a; color: #fd7c7c; }
 .status-on_hold     { background: #3a1a4a; color: #d77cfd; }
 
-/* Extra field line (episodes / pages / volumes) */
+/* Extra field (episodes / pages / volumes) — sits inside .card-status-row */
 .card-extra {
     font-size: 0.75rem;
     color: var(--text-secondary);
-    margin-bottom: 8px;
+    white-space: nowrap;
 }
 
 /* Tag chips at the bottom of each card */
@@ -392,42 +525,38 @@ body {
     color: var(--text-secondary);
 }
 
-/* Edit + Delete buttons — grouped in the top-right corner, hidden until hover */
+/* Edit + Delete buttons — always visible in the top-right corner */
 .card-actions {
     position: absolute;
-    top: 9px;
-    right: 9px;
+    top: 8px;
+    right: 8px;
     display: flex;
-    gap: 2px;
-    opacity: 0;
-    transition: opacity 0.12s;
-}
-
-.media-card:hover .card-actions {
-    opacity: 1;
+    gap: 4px;
 }
 
 .edit-btn,
 .delete-btn {
-    background: none;
-    border: none;
+    background: rgba(15, 15, 26, 0.65);
+    border: 1px solid var(--border);
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 0.78rem;
+    font-size: 0.92rem;
     line-height: 1;
-    padding: 2px 4px;
-    border-radius: 4px;
-    transition: color 0.12s, background 0.12s;
+    padding: 5px 8px;
+    border-radius: 6px;
+    transition: color 0.12s, background 0.12s, border-color 0.12s;
 }
 
 .edit-btn:hover {
     color: #7c9ffd;
-    background: rgba(124, 159, 253, 0.12);
+    background: rgba(124, 159, 253, 0.18);
+    border-color: #7c9ffd;
 }
 
 .delete-btn:hover {
     color: var(--accent);
-    background: rgba(233, 69, 96, 0.12);
+    background: rgba(233, 69, 96, 0.18);
+    border-color: var(--accent);
 }
 
 
@@ -435,13 +564,34 @@ body {
    MODAL (Add Entry dialog)
    ═══════════════════════════════════════════════════════════ */
 #modal-overlay {
-    position: fixed;       /* covers the entire screen regardless of scroll */
-    inset: 0;              /* shorthand: top: 0; right: 0; bottom: 0; left: 0 */
+    position: fixed;
+    inset: 0;
     background: rgba(0, 0, 0, 0.65);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 100;          /* ensure it's above everything else */
+    gap: 16px;             /* space between cover preview and modal form */
+    z-index: 100;
+}
+
+/* Cover image preview — shows to the left of the modal form when an auto-fill result is selected */
+#modal-cover-preview {
+    width: 260px;
+    aspect-ratio: 2 / 3;  /* standard poster ratio — keeps sizing consistent across all covers */
+    flex-shrink: 0;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+#modal-cover-preview.hidden { display: none; }
+
+#modal-cover-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    display: block;
 }
 
 #modal-overlay.hidden {
@@ -455,6 +605,9 @@ body {
     padding: 28px;
     width: 420px;
     max-width: 95vw;
+    max-height: 90vh;
+    overflow-x: hidden;  /* never allow horizontal scroll inside the modal */
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -483,6 +636,47 @@ body {
 
 .extra-field.hidden {
     display: none;
+}
+
+/* Episode row: [current-ep wrapper] [total-ep label] side by side */
+.episode-fields {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+/* Wrapper holds the current-ep label + separator.
+   flex: 1 so it shares space equally with the total-ep label.
+   min-width: 0 prevents it from pushing past the modal edge. */
+#current-episode-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+#current-episode-wrapper.hidden { display: none; }
+
+#current-episode-wrapper label {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Total episodes label — takes all space when current-episode is hidden */
+#total-episodes-label {
+    flex: 1;
+    min-width: 0;
+}
+
+.episode-fields input { width: 100%; }
+
+/* The "/" separator between the two inputs */
+.episode-sep {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    padding-bottom: 9px;
+    flex-shrink: 0;
 }
 
 #modal input,
@@ -551,6 +745,484 @@ body {
 
 #modal-save:hover {
     background: var(--accent-dim);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SETTINGS MODAL
+   ═══════════════════════════════════════════════════════════ */
+
+#settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+#settings-overlay.hidden { display: none; }
+
+#settings-modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    width: 420px;
+    max-width: 95vw;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+#settings-modal h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+#settings-modal label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+#settings-modal input {
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.12s;
+}
+
+#settings-modal input:focus { border-color: var(--accent); }
+
+#settings-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+#settings-cancel {
+    padding: 8px 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: border-color 0.12s, color 0.12s;
+}
+
+#settings-cancel:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+#settings-save {
+    padding: 8px 20px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: white;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: background 0.12s;
+}
+
+#settings-save:hover { background: var(--accent-dim); }
+
+
+/* ═══════════════════════════════════════════════════════════
+   DETAIL VIEW MODAL (read-only, opens on card click)
+   ═══════════════════════════════════════════════════════════ */
+
+#detail-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+#detail-overlay.hidden { display: none; }
+
+/* The modal itself is a flex row: optional cover image on left, content on right */
+#detail-modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 760px;
+    max-width: 95vw;
+    max-height: 88vh;
+    overflow: hidden;
+    display: flex;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* Cover image column — only present when the entry has an image_url */
+#detail-cover {
+    width: 280px;
+    min-width: 280px;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+#detail-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top;
+    display: block;
+    border-radius: 16px 0 0 16px;
+}
+
+/* Text content column */
+#detail-content {
+    flex: 1;
+    padding: 28px;
+    overflow-y: auto;
+    min-width: 0;
+    min-height: 420px;  /* ensures cover always has room to show a good portion of the poster */
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+}
+
+#detail-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+    line-height: 1;
+    transition: background 0.12s, color 0.12s;
+}
+
+#detail-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+#detail-title {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.3;
+    padding-right: 32px;  /* prevent overlap with the close button */
+}
+
+#detail-alt-title {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    margin-top: 3px;
+}
+
+/* Row of type badge + status badge + extra field info */
+#detail-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Type badge — colored to match the card's left border stripe */
+.detail-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+
+.detail-badge.type-anime { color: #7c83fd; background: rgba(124, 131, 253, 0.15); }
+.detail-badge.type-movie { color: #fd7c7c; background: rgba(253, 124, 124, 0.15); }
+.detail-badge.type-show  { color: #7cfdbc; background: rgba(124, 253, 188, 0.15); }
+.detail-badge.type-book  { color: #fdcc7c; background: rgba(253, 204, 124, 0.15); }
+.detail-badge.type-manga { color: #d77cfd; background: rgba(215, 124, 253, 0.15); }
+
+.detail-extra {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+#detail-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+/* Labeled sections for Description and Notes */
+.detail-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.detail-section-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+}
+
+.detail-text {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    line-height: 1.65;
+    white-space: pre-wrap;  /* preserve line breaks in long synopses */
+}
+
+#detail-date {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   JIKAN AUTO-FILL (MyAnimeList search in modal)
+   ═══════════════════════════════════════════════════════════ */
+
+#jikan-section.hidden { display: none; }
+#tmdb-section.hidden  { display: none; }
+
+/* Row with the text input + search button side by side */
+#jikan-search-row,
+#tmdb-search-row {
+    display: flex;
+    gap: 8px;
+}
+
+/* The text input takes all remaining width */
+#jikan-query,
+#tmdb-query { flex: 1; }
+
+#jikan-search-btn,
+#tmdb-search-btn {
+    padding: 8px 14px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+#jikan-search-btn:hover,
+#tmdb-search-btn:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+#jikan-search-btn:disabled,
+#tmdb-search-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Results list container */
+#jikan-results,
+#tmdb-results {
+    list-style: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    max-height: 480px;
+    overflow-y: auto;
+}
+
+#jikan-results.hidden,
+#tmdb-results.hidden { display: none; }
+
+/* One result row: thumbnail on the left, info on the right */
+.jikan-result {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+}
+
+.jikan-result:last-child { border-bottom: none; }
+.jikan-result:hover { background: var(--bg-hover); }
+
+/* Small cover thumbnail in the results list */
+.jikan-thumb {
+    width: 36px;
+    height: 50px;
+    object-fit: cover;   /* crop to fill without stretching */
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: var(--bg-hover);  /* placeholder color while image loads */
+}
+
+.jikan-info { min-width: 0; }  /* allows text-overflow: ellipsis to work inside flex */
+
+.jikan-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jikan-meta {
+    font-size: 0.73rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.result-added-badge {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #7cfdbc;   /* same green as the "Completed" status badge */
+    margin-top: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CARD COVER IMAGE
+   ═══════════════════════════════════════════════════════════ */
+
+/* overflow: hidden clips the cover image to the card's rounded corners */
+.media-card { overflow: hidden; }
+
+/* Negative margins cancel the card's padding so the image is edge-to-edge at the top */
+.card-cover {
+    margin: -14px -14px 12px -14px;
+    height: 200px;
+    overflow: hidden;
+    border-radius: 12px 12px 0 0;
+}
+
+.card-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;   /* show the top of the poster, crop the bottom */
+    object-position: top;
+    display: block;
+}
+
+/* ── Star Rating Picker (in modal) ───────────────────────── */
+#star-rating {
+    display: flex;
+    gap: 4px;
+}
+
+.star {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #55556a;   /* visible but muted on dark background */
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.08s;
+}
+
+.star.filled { color: #fdc97c; }   /* gold when selected or hovered */
+
+/* ── Star Rating on Cards ─────────────────────────────────── */
+.card-rating {
+    display: flex;
+    gap: 1px;
+    margin-bottom: 8px;
+}
+
+.card-star {
+    background: none;
+    border: none;
+    font-size: 1rem;
+    color: #55556a;   /* visible but muted on dark card background */
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.08s;
+    flex-shrink: 0;
+}
+
+.card-star.filled { color: #fdc97c; }
+
+/* ── Toast Notifications ──────────────────────────────────── */
+#toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 500;   /* above all modals */
+    pointer-events: none;
+}
+
+.toast {
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    max-width: 320px;
+    opacity: 0;
+    transform: translateX(12px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.toast.visible {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0;
+    flex-shrink: 0;
+    transition: color 0.12s;
+}
+
+.toast-close:hover {
+    color: var(--text-primary);
 }
 
 /* ─── Scrollbar Styling ───────────────────────────────────── */
