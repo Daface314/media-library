@@ -142,17 +142,87 @@ function registerIpcHandlers(): void {
         return db.clearMediaFields(id);
     });
 
-    // Searches the Jikan v4 API (MyAnimeList data) for anime or manga.
+    // Searches the AniList GraphQL API for anime or manga (replaces Jikan, whose public API was shut down).
     // Running this in main keeps the renderer sandboxed — no outbound fetch from the UI.
-    ipcMain.handle('search-jikan', async (_event, mediaType: string, query: string) => {
-        const endpoint = mediaType === 'manga' ? 'manga' : 'anime';
-        const url = `https://api.jikan.moe/v4/${endpoint}?q=${encodeURIComponent(query)}&limit=12&sfw=true`;
+    // Results are mapped into the field names the renderer reads (the shape Jikan used to return).
+    // GraphQL = one POST endpoint where the query string lists exactly which fields you want.
+    const ANILIST_QUERY = `
+        query ($search: String, $type: MediaType) {
+            Page(perPage: 12) {
+                media(search: $search, type: $type, isAdult: false) {
+                    title { romaji english }
+                    description(asHtml: false)
+                    seasonYear
+                    startDate { year }
+                    episodes
+                    volumes
+                    genres
+                    coverImage { medium large }
+                }
+            }
+        }`;
+
+    // AniList currently allows 30 requests per minute (it reports this in the X-RateLimit-Limit
+    // header), so every request goes through one queue that spaces them ~2.2s apart. Without this,
+    // the startup refresh (one request per entry) and a manual search can overlap and get HTTP 429.
+    const ANILIST_MIN_INTERVAL_MS = 2200;
+    const ANILIST_MAX_RETRIES     = 2;
+    let anilistQueue: Promise<unknown> = Promise.resolve();  // tail of the chain; each call waits for the previous
+    let anilistLastSent = 0;                                 // timestamp of the last request (ms)
+
+    const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+    const anilistFetch = (body: string): Promise<Response> => {
+        const run = anilistQueue.then(async () => {
+            for (let attempt = 0; ; attempt++) {
+                const wait = anilistLastSent + ANILIST_MIN_INTERVAL_MS - Date.now();
+                if (wait > 0) await sleep(wait);
+                anilistLastSent = Date.now();
+
+                const response = await fetch('https://graphql.anilist.co', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body,
+                    signal: AbortSignal.timeout(10000)  // don't hang the UI on a dead connection
+                });
+                if (response.status !== 429 || attempt >= ANILIST_MAX_RETRIES) return response;
+
+                // Rate limited: AniList says how long to wait in the Retry-After header (seconds)
+                const retryAfterMs = Math.min((Number(response.headers.get('Retry-After')) || 60) * 1000, 90000);
+                console.warn(`AniList rate limit hit; retrying in ${Math.round(retryAfterMs / 1000)}s`);
+                anilistLastSent = Date.now() + retryAfterMs - ANILIST_MIN_INTERVAL_MS;  // delays the next send
+            }
+        });
+        anilistQueue = run.catch(() => undefined);  // a failed request must not break the chain
+        return run;
+    };
+
+    ipcMain.handle('search-anilist', async (_event, mediaType: string, query: string) => {
         try {
-            const response = await fetch(url);
-            if (!response.ok) return [];
-            const json = await response.json() as { data?: unknown[] };
-            return json.data ?? [];
-        } catch {
+            const response = await anilistFetch(JSON.stringify({
+                query: ANILIST_QUERY,
+                variables: { search: query, type: mediaType === 'manga' ? 'MANGA' : 'ANIME' }
+            }));
+            if (!response.ok) {
+                console.error(`AniList request failed: HTTP ${response.status}`);
+                return [];
+            }
+            const json = await response.json() as { data?: { Page?: { media?: any[] } } };
+            return (json.data?.Page?.media ?? []).map((m: any) => ({
+                title: m.title?.romaji ?? m.title?.english ?? '',
+                title_english: m.title?.english ?? null,
+                // AniList synopses can still contain <br> tags; strip them to plain text
+                synopsis: m.description
+                    ? String(m.description).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim()
+                    : null,
+                year: m.seasonYear ?? m.startDate?.year ?? null,
+                episodes: m.episodes ?? null,
+                volumes: m.volumes ?? null,
+                genres: (m.genres ?? []).map((name: string) => ({ name })),
+                images: { jpg: { image_url: m.coverImage?.medium, large_image_url: m.coverImage?.large } }
+            }));
+        } catch (err) {
+            console.error('AniList request failed:', err);
             return [];
         }
     });

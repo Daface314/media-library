@@ -127,7 +127,7 @@ export class MediaDatabase {
 
     searchMedia(query: string): MediaEntry[] {
         // Also search the stored title_english field so entries saved with a Japanese
-        // title (filled by Jikan) are still found when the user types the English name.
+        // title (filled by AniList) are still found when the user types the English name.
         const rows = this.db.prepare(`
             SELECT DISTINCT m.*
             FROM media m

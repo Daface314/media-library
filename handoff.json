@@ -4,14 +4,15 @@
   "location": "C:\\Users\\noahm\\OneDrive\\VSCode\\Projects\\media-library",
   "github": "https://github.com/Daface314/media-library",
   "version": "0.1.0",
-  "last_updated": "2026-06-10",
+  "last_updated": "2026-11-10",
 
   "user_context": {
     "background": "Java/C++ programmer, new to TypeScript/web/SQL",
     "preferences": [
       "Frequent inline comments explaining TypeScript/web syntax via Java or C++ analogies",
       "Responses should be reasonably concise but thorough when explaining new concepts",
-      "Never introduce horizontal scrollbars anywhere in the UI"
+      "Never introduce horizontal scrollbars anywhere in the UI",
+      "Keyboard-first: every feature should be reachable without a mouse (see keyboard_navigation)"
     ]
   },
 
@@ -24,14 +25,16 @@
   },
 
   "project_structure": {
-    "src/main/main.ts": "Electron main process, IPC handlers, DB + config init. Config stored at userData/config.json for API keys.",
+    "src/main/main.ts": "Electron main process, IPC handlers, DB + config init. Config stored at userData/config.json for API keys. Also holds the AniList GraphQL query, request queue (anilistFetch) and result mapping.",
     "src/main/database.ts": "MediaDatabase class — all SQLite logic, CRUD for media/tags/fields/rating",
     "src/main/preload.ts": "contextBridge security bridge — exposes window.api to renderer",
-    "src/renderer/renderer.ts": "All UI logic — state, card rendering, modals (add/edit/detail/settings), Jikan/TMDB search, genre picker, filters, auto-refresh",
+    "src/renderer/renderer.ts": "All UI logic — state, card rendering, modals (add/edit/detail/settings/help), AniList/TMDB search, genre picker + genre filter, filters, auto-refresh, and the whole keyboard layer (Keyboard Navigation section: key bindings, handleKeydown and its helpers)",
     "src/renderer/globals.d.ts": "TypeScript declaration for window.api (top-level interface Window, NOT export {} — would crash renderer)",
-    "public/index.html": "App shell HTML — sidebar, media grid, add/edit modal, detail modal, settings modal",
-    "public/styles.css": "Dark theme CSS with custom properties",
+    "public/index.html": "App shell HTML — sidebar, header filters (type chips, genre panel with filter box, sort), media grid, add/edit modal, detail modal, settings modal (API key + key binding editor), shortcut help overlay. Content-Security-Policy meta tag lives here (img-src must list every cover-image host).",
+    "public/styles.css": "Dark theme CSS with custom properties. Keyboard-navigation styles (focus rings, delete-confirm, help dialog, key binding editor) are appended at the end.",
     ".github/workflows/release.yml": "CI release pipeline",
+    "ARCHITECTURE.md": "Explains the two-process model, IPC, schema, auto-fill APIs and keyboard layer",
+    "TODO.md": "Personal task list and setup steps",
     "package.json": "Scripts: dev (tsc+electron), dist (tsc+electron-builder --publish never)"
   },
 
@@ -43,14 +46,14 @@
   },
 
   "media_fields_keys": {
-    "image_url": "Cover poster URL (from Jikan large_image_url or TMDB w500). Used on cards and detail view.",
-    "description": "Plot synopsis auto-filled from Jikan/TMDB. NOT editable in modal — set only via auto-fill or startup refresh.",
+    "image_url": "Cover poster URL (from AniList coverImage.large or TMDB w500). Used on cards and detail view.",
+    "description": "Plot synopsis auto-filled from AniList/TMDB. NOT editable in modal — set only via auto-fill or startup refresh.",
     "title_english": "English title for anime/manga where main title is Japanese. Searched alongside media.title in searchMedia query.",
     "episodes": "Total episode count (anime/show). Displayed as part of episode progress.",
     "current_episode": "Episode the user is currently on. Only saved when status = 'in_progress'. Shown as 'Ep X / Y'.",
     "pages": "Page count for books.",
     "volumes": "Volume count for manga.",
-    "year": "Release year. Auto-filled from Jikan/TMDB. NOT editable in modal — set only via auto-fill or startup refresh. Shown on cards and detail view."
+    "year": "Release year. Auto-filled from AniList/TMDB. NOT editable in modal — set only via auto-fill or startup refresh. Shown on cards and detail view."
   },
 
   "ipc_api": {
@@ -70,7 +73,7 @@
       "updateRating(id, rating) → void  — lightweight rating-only update, used by card star clicks",
       "clearMediaTags(id) → void",
       "clearMediaFields(id) → void",
-      "searchJikan(mediaType, query) → any[]  — Jikan v4 API, anime or manga, no key needed",
+      "searchAnilist(mediaType, query) → any[]  — IPC channel 'search-anilist'. AniList GraphQL API, anime or manga, no key needed. Returns Jikan-shaped objects (title, title_english, synopsis, year, episodes, volumes, genres[{name}], images.jpg.{image_url,large_image_url}). Replaced Jikan, whose public API was shut down in Oct 2026. Returns [] on any failure (logged in the terminal).",
       "searchTmdb(mediaType, query) → { results?, error? }  — TMDB search, requires stored API key",
       "getTmdbTvDetails(showId) → any  — fetches /tv/{id} for episode count (not in search results)",
       "getApiKey(keyName) → string | null  — reads from userData/config.json",
@@ -79,19 +82,26 @@
   },
 
   "renderer_state": {
-    "currentTab": "string — 'all' | 'search' | 'genres' | 'mylist'",
+    "currentTab": "string — 'all' | 'search' | 'mylist' (genres are no longer a tab; see genreFilterSet)",
     "currentTypeFilter": "string — 'all' | 'anime' | 'movie' | 'show' | 'book' | 'manga'",
     "currentStatusFilter": "string — status value or 'all'",
-    "activeTagFilter": "string | null — genre name to filter by",
-    "currentSort": "'az' | 'za' — alphabetical sort direction, default 'az'",
+    "genreFilterSet": "Set<string> — genres selected in the header genre filter",
+    "genreFilterMode": "'and' | 'or' — whether an entry must have all selected genres or any",
+    "currentSort": "'az' | 'za' | 'rating-high' | 'rating-low' — default 'az'; the sort button cycles through them",
     "allGenres": "string[] — full genre name list from DB, kept in sync when modal opens",
     "selectedGenres": "Set<string> — genres selected in the currently open modal",
     "editingEntryId": "number | null — null = add mode, number = edit mode for that entry's id",
     "currentRating": "number | null — star rating (1-5) selected in the open modal",
     "currentImageUrl": "string | null — cover URL from auto-fill, saved to media_fields on save",
-    "currentTitleEnglish": "string | null — English title from Jikan, saved to media_fields as title_english",
+    "currentTitleEnglish": "string | null — English title from AniList, saved to media_fields as title_english",
     "currentYear": "string | null — release year from auto-fill, saved to media_fields as year. No UI input — auto-fill only.",
-    "currentDescription": "string | null — synopsis from auto-fill, saved to media_fields as description. No UI input — auto-fill only."
+    "currentDescription": "string | null — synopsis from auto-fill, saved to media_fields as description. No UI input — auto-fill only.",
+    "keyBinds": "Record<actionId, key> — current key bindings (defaults + localStorage overrides)",
+    "capturingActionId": "string | null — set while Settings waits for the next key press to rebind an action",
+    "cardHandlers": "WeakMap<card element, {open, edit, remove, rate}> — what the keyboard can do to each card",
+    "returnFocusEl / genreFilterReturnEl": "Element to refocus when a dialog / the genre filter closes",
+    "pendingDeleteCard": "Card awaiting the second Delete press (3s timeout)",
+    "genreActions / genreHighlight": "Rows and highlighted row of the Add/Edit dialog's genre dropdown"
   },
 
   "statuses": {
@@ -104,18 +114,19 @@
   },
 
   "modal_field_order": [
-    "Type (select) — must be first so Jikan/TMDB section visibility is set immediately",
-    "Jikan section (hidden unless type = anime/manga)",
+    "Type (select) — must be first so AniList/TMDB section visibility is set immediately",
+    "AniList section (hidden unless type = anime/manga)",
     "TMDB section (hidden unless type = movie/show)",
-    "Title (override — auto-filled by Jikan/TMDB but editable)",
+    "Title (override — auto-filled by AniList/TMDB but editable)",
     "Status (select)",
     "Rating (5 star picker)",
     "Extra fields: Episodes (Current / Total, shown for anime/show) | Pages (book) | Volumes (manga)",
     "  Note: Current Episode only shown when status = in_progress",
-    "Genres (searchable multi-select dropdown)",
+    "Genres (searchable multi-select; dropdown opens on Enter or mouse click, never on focus)",
     "Notes (personal notes, untouched by auto-fill)",
     "Modal buttons (Cancel / Save)",
-    "NOTE: Year and Description are intentionally absent from the modal — they are auto-fill/refresh only"
+    "NOTE: Year and Description are intentionally absent from the modal — they are auto-fill/refresh only",
+    "Keyboard: Up/Down ONLY move between these fields; Left/Right step through lists (drop-down value, stars, auto-fill results, genre dropdown, Cancel/Save); drop-downs open on Enter"
   ],
 
   "card_layout": {
@@ -124,21 +135,35 @@
     "title": "Clamped to 2 lines with text-overflow ellipsis",
     "status_row": "Single flex row: [status badge] [year if present] [episode info] [5 star rating].",
     "tags": "Genre chips at the bottom",
-    "card_actions": "Edit (✎) and Delete (✕) buttons, always visible at top-right with semi-transparent background"
+    "card_actions": "Edit (✎) and Delete (✕) buttons, always visible at top-right with semi-transparent background. Mouse delete has NO confirmation yet; keyboard delete needs two presses.",
+    "keyboard": "Cards are tabindex=-1 (roving tabindex: the focused card is the Tab stop); inner buttons are tabindex=-1 so Tab skips them. Focused card gets an accent outline via :focus-visible."
   },
 
   "startup_refresh": {
     "trigger": "DOMContentLoaded — fired with 'void refreshAllEntries()' (non-blocking) after initial loadMedia/loadGenres",
     "function": "refreshAllEntries() in renderer.ts",
-    "scope": "All entries except books (Jikan/TMDB have no book support)",
+    "scope": "All entries except books (AniList/TMDB have no book support)",
     "order": "Most recently added first (follows getAllMedia() ORDER BY date_added DESC)",
-    "delays": "1000ms between Jikan requests (anime/manga), 350ms between TMDB requests (movie/show)",
-    "jikan_fallback": "Tries title_english first, then item.title as a second query if the first returns empty",
+    "delays": "AniList limit is 30 req/min (X-RateLimit-Limit header): main process queues requests ~2.2s apart and retries 429s using Retry-After (see anilistFetch in main.ts), so a big library refreshes slowly in the background (~2s per anime/manga entry); 350ms between TMDB requests (movie/show)",
+    "anilist_fallback": "Tries title_english first, then item.title as a second query if the first returns empty",
     "fields_refreshed": ["image_url", "description", "title_english", "year", "episodes", "volumes"],
     "fields_preserved": "current_episode and any other non-AUTO_FILL_KEYS fields are carried over unchanged",
     "genres": "New genres from API are added; existing genres are never removed (preserves manually added ones)",
     "completion": "Shows 'Metadata refresh complete.' toast when all entries are processed",
     "toast": "Toast stays visible until user dismisses it with the × button — no auto-dismiss"
+  },
+
+  "keyboard_navigation": {
+    "where": "renderer.ts 'Keyboard Navigation' section — one document keydown listener (handleKeydown) routes every key",
+    "routing_order": "binding capture → Ctrl+S (help) → Ctrl+Enter (save dialog) → other Ctrl/Alt combos ignored → Esc → open dialog (Tab trap / detail keys / add-edit keys) → text boxes → genre filter → bound shortcuts → grid keys",
+    "bindings": "KEY_ACTIONS table = rebindable actions (id, label, group, defaultKey). Saved in localStorage 'media-library.keybinds' (per machine, not config.json). Edited in Settings (click a key, press the new one; saves instantly). The help dialog is generated from current bindings.",
+    "default_keys": "/ search, n new entry, a All tab, l My List tab, [ ] type filter, , . status filter, s sort, g genre filter, o settings, ? help, Enter open, e edit, Delete delete (press twice), m / c = genre-list match mode / clear",
+    "rules": "Single keys only (no Ctrl/Alt combos). Fixed, not rebindable: Esc, Tab, Space, Backspace, arrows, Home/End/PgUp/PgDn, 0-5 (rating), Ctrl+Enter (save dialog), Ctrl+S (toggle help; works while typing). Binding a key already in use is rejected, not swapped.",
+    "grid": "Arrows move between cards (column count from offsetTop), Home/End, PgUp/PgDn = 3 rows. Enter/Space open details, E edit, 0-5 rate, Delete x2 delete. Focus returns to the same grid position after a re-render (renderMediaGrid).",
+    "detail_view": "Up/Down/PgUp/PgDn/Home/End scroll #detail-content manually (focus stays on the card behind the panel, so without this the grid behind would scroll); Left/Right flip to the previous/next entry; edit key edits.",
+    "genre_filter": "G opens the header genre panel with a type-to-filter box (#genre-filter-search). Box: Enter toggles first match, Down browses chips. Chips: arrows (row-aware via chipInAdjacentRow), Enter/Space toggle, m/c bound keys, typing jumps back to the box. Esc closes the panel and returns focus to the card you came from.",
+    "add_edit_dialog": "Up/Down ONLY move between fields (modalFieldStops, includes selects/notes/number boxes). Left/Right step through lists: stars (rating), selects (native), auto-fill results (Right at end of the box enters them), genre dropdown highlight, Cancel/Save. Selects open on Enter (showPicker) and Space is blocked. Genre dropdown opens on Enter or mouse click only; Backspace on an empty box removes the last chip; Esc closes just the dropdown. Ctrl+Enter saves.",
+    "focus_management": "rememberFocus()/restoreFocus() return focus to the card after any dialog closes; trapTab() keeps Tab inside open dialogs."
   },
 
   "key_design_decisions": [
@@ -150,21 +175,30 @@
     "Database stored at app.getPath('userData') — survives app reinstall, isolated per OS user",
     "electron-builder uses --publish never flag; GitHub Release asset upload handled by softprops/action-gh-release@v2 action",
     "Card stars are generated inside the innerHTML template (not inserted via DOM after the fact) — insertAdjacentElement was silently failing for some entries",
-    "Jikan/TMDB API calls run in the main process (not renderer) to keep the renderer sandboxed and avoid CSP connect-src issues",
+    "AniList/TMDB API calls run in the main process (not renderer) to keep the renderer sandboxed and avoid CSP connect-src issues",
     "TMDB TV episode count requires a separate /tv/{id} detail call — the search endpoint only returns genre_ids, not episode count",
     "updateRating() is a separate lightweight IPC call so card star clicks update the DB without reloading the entire grid",
     "current_episode is only saved when status = in_progress, and the input is hidden+cleared when status changes away from in_progress",
     "Never add horizontal scrollbars anywhere in the UI — use min-width:0 on flex children, overflow-x:hidden on containers",
     "year and description have no modal input fields — they are state variables (currentYear, currentDescription) set by auto-fill and saved on entry save",
-    "Toast notifications do not auto-dismiss — each toast has a × button the user must click to remove it"
+    "Toast notifications do not auto-dismiss — each toast has a × button the user must click to remove it",
+    "Content-Security-Policy img-src in index.html must list every cover host (*.anilist.co, cdn.myanimelist.net for old saved covers, image.tmdb.org). A missing host = valid URL saved but image silently blocked.",
+    "AniList is rate limited to 30 req/min; all requests go through one queue in main.ts (anilistFetch) with Retry-After handling. Do not call fetch to AniList directly.",
+    "searchAnilist returns Jikan-shaped objects on purpose so the renderer's fill/refresh code needed no changes after the Jikan shutdown",
+    "Key bindings live in localStorage (renderer-side), not config.json, because only the renderer uses them",
+    "Esc handling is centralized in handleEscape(); don't add separate Escape listeners",
+    "Detail-view scrolling is done in JS because focus stays on the card behind the overlay",
+    "Genre dropdown rows are driven by genreActions[] so mouse (mousedown) and keyboard (Enter) share the same code; the old Enter handler called .click() on rows that only listened for mousedown and did nothing"
   ],
 
   "autofill_apis": {
-    "jikan": {
-      "url": "https://api.jikan.moe/v4/{anime|manga}?q=QUERY&limit=12&sfw=true",
+    "anilist": {
+      "url": "POST https://graphql.anilist.co (GraphQL; query in src/main/main.ts, results mapped to the old Jikan-like shape the renderer reads)",
+      "rate_limit": "30 requests/min — queued ~2.2s apart with 429 retry (anilistFetch)",
+      "image_cdn": "https://s4.anilist.co (allowed in the CSP as *.anilist.co)",
       "key_required": false,
       "covers": ["anime", "manga"],
-      "fields_filled": ["title", "description (synopsis)", "episodes/volumes", "genres", "image_url (large_image_url)", "title_english", "year (from year/aired.from/published.from)"]
+      "fields_filled": ["title", "description (synopsis)", "episodes/volumes", "genres", "image_url (coverImage.large)", "title_english", "year (seasonYear/startDate.year)"]
     },
     "tmdb": {
       "url": "https://api.themoviedb.org/3/search/{movie|tv}",
@@ -194,11 +228,14 @@
     "better-sqlite3 must be rebuilt for the target Electron version: npm run rebuild-sqlite",
     "After Node.js install, must restart VSCode/terminal for PATH to update",
     "Local dist build may fail with symlink error — run as Administrator or enable Windows Developer Mode",
-    "GitHub auth: configured for Daface314; if wrong account appears, clear Windows Credential Manager"
+    "GitHub auth: configured for Daface314; if wrong account appears, clear Windows Credential Manager",
+    "HTTP 429 from AniList in the terminal = rate limit; the queue in main.ts retries automatically (look for 'AniList rate limit hit; retrying' warnings)",
+    "Covers missing for AniList entries = check the CSP img-src in public/index.html",
+    "package.json version is still 0.1.0 although tags v1.0.1 and v1.0.2 exist — bump it before the next release so installer filenames match the tag"
   ],
 
   "status": {
-    "last_release": "v1.0.2",
-    "active_development": "Many features added since last release — no new tag/release created yet"
+    "last_release": "v1.0.2 (latest git tag; package.json still says 0.1.0)",
+    "active_development": "Since v1.0.2: AniList replaced Jikan, keyboard navigation + rebindable keys, genre filter search, rating/sort/detail/edit features — no new tag/release created yet. Changes are uncommitted in the working tree."
   }
 }

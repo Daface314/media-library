@@ -26,12 +26,12 @@ let editingEntryId: number | null = null;
 // Star rating selected in the currently open modal (1–5, or null for no rating)
 let currentRating: number | null = null;
 
-// Holds the cover image URL chosen from a Jikan result (null if not from Jikan).
+// Holds the cover image URL chosen from a AniList result (null if not from AniList).
 // Saved to media_fields as 'image_url' alongside episodes/pages/volumes.
 let currentImageUrl: string | null = null;
 
-// English title from Jikan (stored separately from the main title so search can match it).
-// Jikan's main title is often Japanese/romaji; title_english is the English localized name.
+// English title from AniList (stored separately from the main title so search can match it).
+// AniList's main title is often Japanese/romaji; title_english is the English localized name.
 let currentTitleEnglish: string | null = null;
 
 // Release year from auto-fill (stored in media_fields as 'year').
@@ -53,6 +53,25 @@ const modalCancelBtn = document.getElementById('modal-cancel')!;
 const modalSaveBtn   = document.getElementById('modal-save')!;
 const contentTitle   = document.getElementById('content-title')!;
 
+// ─── Keyboard Navigation State ────────────────────────────────────────────
+// What the keyboard can do to a card. renderMediaGrid registers one of these per card
+// (like attaching a small interface implementation to each object).
+interface CardHandlers {
+    open():   void;
+    edit():   void;
+    remove(): Promise<void>;
+    rate(value: number | null): void;
+}
+// WeakMap: keys are the card elements; entries vanish automatically when a card is removed from the DOM.
+const cardHandlers = new WeakMap<HTMLElement, CardHandlers>();
+
+// Element to give focus back to when a dialog closes (usually the selected card).
+let returnFocusEl: HTMLElement | null = null;
+
+// Delete needs two presses: the first marks the card, the second confirms.
+let pendingDeleteCard: HTMLElement | null = null;
+let pendingDeleteTimer: number | undefined;
+
 // ─── Entry Point ──────────────────────────────────────────────────────────
 // DOMContentLoaded fires once all HTML elements are ready to be accessed.
 // It's the equivalent of putting code at the bottom of main() after setup.
@@ -60,8 +79,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadMedia();
     await loadGenres();
     setupEventListeners();
+    initKeyboardNavigation();
     initStarRating();
-    initJikanSearch();
+    initAnilistSearch();
     initTmdbSearch();
     // Refresh metadata in the background after the library is shown.
     // void discards the promise intentionally — we don't want to block startup.
@@ -131,6 +151,7 @@ async function loadGenres(): Promise<void> {
     tags.forEach((tag: { id: number; name: string; count: number }) => {
         const li = document.createElement('li');
         li.className = 'genre-filter-item';
+        li.tabIndex = -1;  // focusable by the arrow-key handler in initKeyboardNavigation()
         if (genreFilterSet.has(tag.name)) li.classList.add('active');
         li.textContent = tag.name;
 
@@ -148,6 +169,8 @@ async function loadGenres(): Promise<void> {
 
         list.appendChild(li);
     });
+
+    applyGenreFilterText();  // keep any text typed in the filter box applied after a rebuild
 }
 
 // Updates the genre filter button label to show how many genres are selected and in which mode.
@@ -173,7 +196,13 @@ function initGenreFilter(): void {
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
         dropdown.classList.toggle('hidden');
+        if (!dropdown.classList.contains('hidden')) {
+            (document.getElementById('genre-filter-search') as HTMLInputElement).focus();
+        }
     });
+
+    // Typing in the box narrows the genre list
+    document.getElementById('genre-filter-search')!.addEventListener('input', applyGenreFilterText);
 
     // AND / OR mode buttons
     dropdown.querySelectorAll('.genre-mode-btn').forEach(modeBtn => {
@@ -207,7 +236,13 @@ function initGenreFilter(): void {
 
 // Builds and inserts media cards into the grid from an array of entries.
 function renderMediaGrid(items: any[]): void {
+    // If a card had keyboard focus, remember its position so we can re-focus the card
+    // now at that position after the rebuild (e.g. the next card after a delete).
+    const focusedCard = (document.activeElement as HTMLElement | null)?.closest('.media-card') as HTMLElement | null;
+    const focusedIndex = focusedCard ? getCards().indexOf(focusedCard) : -1;
+
     mediaGrid.innerHTML = '';  // wipe the current grid
+    clearPendingDelete();
 
     if (items.length === 0) {
         mediaGrid.innerHTML = '<p class="empty-message">Nothing here yet. Add some entries!</p>';
@@ -226,6 +261,8 @@ function renderMediaGrid(items: any[]): void {
         ).join('');
 
         const extraInfo = formatExtraField(item.fields, item.type);
+        card.tabIndex = -1;  // focusable by script (arrow keys); focusin below makes the focused card the Tab stop
+        card.setAttribute('role', 'button');
         card.innerHTML = `
             <div class="card-type-badge">${item.type}</div>
             <h3 class="card-title">${escapeHtml(item.title)}</h3>
@@ -244,23 +281,45 @@ function renderMediaGrid(items: any[]): void {
             </div>
         `;
 
+        // The per-card buttons are skipped by Tab — arrow keys move between cards and
+        // E / 1-5 / Delete do what those buttons do, so Tab doesn't crawl through 7 stops per card.
+        card.querySelectorAll('button').forEach(b => { (b as HTMLElement).tabIndex = -1; });
+
         // Wire up star hover and click now that they're in the DOM
         const cardStarEls = Array.from(card.querySelectorAll('.card-star')) as HTMLButtonElement[];
         const refreshCardStars = (threshold: number) =>
             cardStarEls.forEach((s, si) => s.classList.toggle('filled', si < threshold));
+
+        // Shared by the star buttons and the 0-5 keys. Picking the current rating again (or null) clears it.
+        const applyRating = async (value: number | null) => {
+            liveRating = (value === null || liveRating === value) ? null : value;
+            await window.api.updateRating(item.id, liveRating);
+            refreshCardStars(liveRating ?? 0);
+        };
         cardStarEls.forEach((btn, i) => {
             btn.addEventListener('mouseenter', () => refreshCardStars(i + 1));
             btn.addEventListener('mouseleave', () => refreshCardStars(liveRating ?? 0));
-            btn.addEventListener('click', async (e) => {
+            btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const newVal = liveRating === (i + 1) ? null : (i + 1);
-                liveRating = newVal;
-                await window.api.updateRating(item.id, newVal);
-                refreshCardStars(liveRating ?? 0);
+                void applyRating(i + 1);
             });
         });
 
-        // If the entry has a cover image (from Jikan), insert it at the top of the card.
+        // Shared by the delete button and the Delete key
+        const removeEntry = async () => {
+            await window.api.deleteMedia(item.id);
+            await loadMedia();
+            await loadGenres();
+        };
+
+        cardHandlers.set(card, {
+            open:   () => openDetailModal(item),
+            edit:   () => { void openEditModal(item); },
+            remove: removeEntry,
+            rate:   (value) => { void applyRating(value); },
+        });
+
+        // If the entry has a cover image (from AniList), insert it at the top of the card.
         // We use DOM methods instead of innerHTML to set img.src safely without XSS risk.
         if (item.fields?.image_url) {
             const coverDiv = document.createElement('div');
@@ -286,13 +345,18 @@ function renderMediaGrid(items: any[]): void {
         // Attach delete handler
         card.querySelector('.delete-btn')!.addEventListener('click', async (e) => {
             e.stopPropagation();
-            await window.api.deleteMedia(item.id);
-            await loadMedia();
-            await loadGenres();
+            await removeEntry();
         });
 
         mediaGrid.appendChild(card);
     });
+
+    // The first card is the Tab stop that leads into the grid (focusin moves it as focus moves)
+    const firstCard = mediaGrid.querySelector<HTMLElement>('.media-card');
+    if (firstCard) firstCard.tabIndex = 0;
+
+    // Put keyboard focus back on the card now at the old position (clamped if the list shrank)
+    if (focusedIndex >= 0) focusCard(Math.min(focusedIndex, items.length - 1));
 }
 
 // ─── Event Listeners ──────────────────────────────────────────────────────
@@ -359,12 +423,14 @@ function setupEventListeners(): void {
 
     // Modal: open when "Add Entry" is clicked
     addMediaBtn.addEventListener('click', async () => {
+        rememberFocus();
         modalOverlay.classList.remove('hidden');
         await openGenrePicker();
         initExtraFields();
         // Set the correct extra field for whichever type is currently selected
         const typeSelect = document.getElementById('input-type') as HTMLSelectElement;
         updateExtraFields(typeSelect.value);
+        focusFirstModalField();
     });
 
     // Modal: close on Cancel button or clicking the dark overlay behind the modal
@@ -386,13 +452,7 @@ function setupEventListeners(): void {
         if ((e.target as HTMLElement).id === 'settings-overlay') closeSettings();
     });
 
-    // Escape key closes whichever modal is currently open
-    document.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key !== 'Escape') return;
-        if (!modalOverlay.classList.contains('hidden'))                                    closeModal();
-        if (!document.getElementById('detail-overlay')!.classList.contains('hidden'))     closeDetailModal();
-        if (!document.getElementById('settings-overlay')!.classList.contains('hidden'))   closeSettings();
-    });
+    // Escape and all other keyboard handling lives in initKeyboardNavigation()
 
     // Modal: save the new entry
     modalSaveBtn.addEventListener('click', saveNewEntry);
@@ -406,6 +466,8 @@ function setupEventListeners(): void {
 function openDetailModal(item: any): void {
     const overlay = document.getElementById('detail-overlay')!;
     const modal   = document.getElementById('detail-modal')!;
+    // Only remember focus on a fresh open — flipping between entries with ←/→ re-enters this function
+    if (overlay.classList.contains('hidden')) rememberFocus();
     modal.innerHTML = '';
 
     // ── Optional cover image column (left side) ──
@@ -494,7 +556,7 @@ function openDetailModal(item: any): void {
         content.appendChild(tagsDiv);
     }
 
-    // Description (from Jikan synopsis, if saved)
+    // Description (from AniList synopsis, if saved)
     if (item.fields?.description) {
         content.appendChild(buildDetailSection('Description', item.fields.description));
     }
@@ -537,12 +599,13 @@ function buildDetailSection(label: string, text: string): HTMLElement {
 
 function closeDetailModal(): void {
     document.getElementById('detail-overlay')!.classList.add('hidden');
+    restoreFocus();
 }
 
 // ─── Refresh from API ─────────────────────────────────────────────────────
 
 // Re-fetches cover, synopsis, year, genres, and episode/volume count from
-// Jikan (anime/manga) or TMDB (movie/show) and updates the stored media_fields.
+// AniList (anime/manga) or TMDB (movie/show) and updates the stored media_fields.
 // User-owned fields (current_episode, notes, rating, status) are never touched.
 // Returns true on success, false if no results were found or a key is missing.
 // Callers are responsible for toasts, loadMedia/loadGenres, and any UI updates.
@@ -555,7 +618,7 @@ async function refreshEntryFromApi(item: any): Promise<boolean> {
 
     if (item.type === 'anime' || item.type === 'manga') {
         // Build a list of distinct queries to try. title_english (when it differs
-        // from the stored title) often gives better Jikan results because the main
+        // from the stored title) often gives better AniList results because the main
         // title can be Japanese/romaji. If the first query returns nothing — whether
         // from a rate-limit 429 or a title mismatch — we try the next one.
         const titleEng = item.fields?.title_english as string | undefined;
@@ -566,7 +629,7 @@ async function refreshEntryFromApi(item: any): Promise<boolean> {
         let results: any[] = [];
         for (let i = 0; i < queries.length; i++) {
             if (i > 0) await new Promise<void>(resolve => setTimeout(resolve, 1000));
-            results = await window.api.searchJikan(item.type, queries[i]);
+            results = await window.api.searchAnilist(item.type, queries[i]);
             if (results && results.length > 0) break;
         }
         if (!results || results.length === 0) return false;
@@ -645,7 +708,8 @@ async function refreshEntryFromApi(item: any): Promise<boolean> {
 
 // Refreshes every non-book entry in the library in sequence, silently.
 // Called automatically on startup — the library is already visible while this runs.
-// Jikan allows ~3 req/s but is sensitive to bursts; 1000ms keeps us well clear.
+// AniList allows 30 req/min; the main process queues and spaces requests (~2.2s apart),
+// so the refresh of a large library simply takes a while in the background.
 // TMDB allows 40 req/10s so 350ms is safe there.
 async function refreshAllEntries(): Promise<void> {
     const allItems    = await window.api.getAllMedia();
@@ -663,23 +727,23 @@ async function refreshAllEntries(): Promise<void> {
     showToast('Metadata refresh complete.');
 }
 
-// ─── Jikan API Search ─────────────────────────────────────────────────────
+// ─── AniList API Search ─────────────────────────────────────────────────────
 
-// Wires the Search button and Enter key in the Jikan search row.
+// Wires the Search button and Enter key in the AniList search row.
 // Called once at startup — no data-wired flag needed since it's not called repeatedly.
-function initJikanSearch(): void {
-    document.getElementById('jikan-search-btn')!.addEventListener('click', runJikanSearch);
+function initAnilistSearch(): void {
+    document.getElementById('anilist-search-btn')!.addEventListener('click', runAnilistSearch);
 
-    const queryInput = document.getElementById('jikan-query') as HTMLInputElement;
+    const queryInput = document.getElementById('anilist-query') as HTMLInputElement;
     queryInput.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key === 'Enter') runJikanSearch();
+        if (e.key === 'Enter') runAnilistSearch();
     });
 }
 
-async function runJikanSearch(): Promise<void> {
+async function runAnilistSearch(): Promise<void> {
     const typeSelect = document.getElementById('input-type')  as HTMLSelectElement;
-    const queryInput = document.getElementById('jikan-query') as HTMLInputElement;
-    const searchBtn  = document.getElementById('jikan-search-btn') as HTMLButtonElement;
+    const queryInput = document.getElementById('anilist-query') as HTMLInputElement;
+    const searchBtn  = document.getElementById('anilist-search-btn') as HTMLButtonElement;
 
     const query = queryInput.value.trim();
     if (!query) return;
@@ -689,14 +753,14 @@ async function runJikanSearch(): Promise<void> {
     searchBtn.disabled = true;
 
     const [results, existingEntries] = await Promise.all([
-        window.api.searchJikan(typeSelect.value, query),
+        window.api.searchAnilist(typeSelect.value, query),
         window.api.getAllMedia(),
     ]);
 
     searchBtn.textContent = 'Search';
     searchBtn.disabled = false;
 
-    renderJikanResults(results, typeSelect.value, existingEntries);
+    renderAnilistResults(results, typeSelect.value, existingEntries);
 }
 
 // Returns true if a search result already exists in the library for that type.
@@ -706,7 +770,7 @@ async function runJikanSearch(): Promise<void> {
 function isAlreadyAdded(result: any, mediaType: string, existingEntries: any[]): boolean {
     const sameType = existingEntries.filter(e => e.type === mediaType);
 
-    // Pull year out of the API result (Jikan and TMDB store it differently)
+    // Pull year out of the API result (AniList and TMDB store it differently)
     const resultYear: string | null =
         result.year?.toString()
         ?? result.aired?.from?.slice(0, 4)
@@ -737,9 +801,9 @@ function isAlreadyAdded(result: any, mediaType: string, existingEntries: any[]):
     });
 }
 
-// Builds the clickable results list from the array Jikan returned.
-function renderJikanResults(results: any[], mediaType: string, existingEntries: any[]): void {
-    const resultsList = document.getElementById('jikan-results')!;
+// Builds the clickable results list from the array AniList returned.
+function renderAnilistResults(results: any[], mediaType: string, existingEntries: any[]): void {
+    const resultsList = document.getElementById('anilist-results')!;
     resultsList.innerHTML = '';
 
     if (results.length === 0) {
@@ -753,15 +817,15 @@ function renderJikanResults(results: any[], mediaType: string, existingEntries: 
 
     results.forEach((r: any) => {
         const li = document.createElement('li');
-        li.className = 'jikan-result';
+        li.className = 'anilist-result';
 
         // Build the "2023 • 12 eps • Action, Adventure" meta line
         const metaParts: string[] = [];
-        // Jikan provides r.year directly for anime; fall back to parsing aired/published dates
-        const jikanYear = r.year?.toString()
+        // AniList provides r.year directly for anime; fall back to parsing aired/published dates
+        const anilistYear = r.year?.toString()
             ?? r.aired?.from?.slice(0, 4)
             ?? r.published?.from?.slice(0, 4);
-        if (jikanYear) metaParts.push(jikanYear);
+        if (anilistYear) metaParts.push(anilistYear);
         if (mediaType === 'anime' && r.episodes) metaParts.push(`${r.episodes} eps`);
         if (mediaType === 'manga' && r.volumes)  metaParts.push(`${r.volumes} vols`);
         const genreText = (r.genres ?? []).slice(0, 3).map((g: any) => g.name).join(', ');
@@ -771,19 +835,19 @@ function renderJikanResults(results: any[], mediaType: string, existingEntries: 
         const img = document.createElement('img');
         const added = isAlreadyAdded(r, mediaType, existingEntries);
 
-        img.className = 'jikan-thumb';
+        img.className = 'anilist-thumb';
         img.src = r.images?.jpg?.image_url ?? '';  // small thumbnail is fine for the results list
         img.alt = '';
 
         const infoDiv  = document.createElement('div');
-        infoDiv.className = 'jikan-info';
+        infoDiv.className = 'anilist-info';
 
         const titleDiv = document.createElement('div');
-        titleDiv.className = 'jikan-title';
+        titleDiv.className = 'anilist-title';
         titleDiv.textContent = r.title ?? '';
 
         const metaDiv  = document.createElement('div');
-        metaDiv.className = 'jikan-meta';
+        metaDiv.className = 'anilist-meta';
         metaDiv.textContent = metaParts.join(' • ');
 
         infoDiv.appendChild(titleDiv);
@@ -799,7 +863,7 @@ function renderJikanResults(results: any[], mediaType: string, existingEntries: 
         li.appendChild(img);
         li.appendChild(infoDiv);
 
-        li.addEventListener('click', () => fillFromJikan(r, mediaType));
+        li.addEventListener('click', () => fillFromAnilist(r, mediaType));
         resultsList.appendChild(li);
     });
 
@@ -807,7 +871,7 @@ function renderJikanResults(results: any[], mediaType: string, existingEntries: 
 }
 
 // Auto-fills the form when the user picks a result.
-function fillFromJikan(result: any, mediaType: string): void {
+function fillFromAnilist(result: any, mediaType: string): void {
     (document.getElementById('input-title') as HTMLInputElement).value = result.title ?? '';
     currentDescription = result.synopsis ?? null;
 
@@ -842,9 +906,9 @@ function fillFromJikan(result: any, mediaType: string): void {
     const eng = result.title_english as string | undefined;
     currentTitleEnglish = (eng && eng !== result.title) ? eng : null;
 
-    // Clear the Jikan search UI — the fields are already filled in
-    document.getElementById('jikan-results')!.classList.add('hidden');
-    (document.getElementById('jikan-query') as HTMLInputElement).value = '';
+    // Clear the AniList search UI — the fields are already filled in
+    document.getElementById('anilist-results')!.classList.add('hidden');
+    (document.getElementById('anilist-query') as HTMLInputElement).value = '';
 }
 
 // ─── Modal Logic ──────────────────────────────────────────────────────────
@@ -961,6 +1025,7 @@ async function saveNewEntry(): Promise<void> {
 
 function closeModal(): void {
     modalOverlay.classList.add('hidden');
+    restoreFocus();
     // Reset edit state and restore modal to "add" mode
     editingEntryId = null;
     currentRating = null;
@@ -987,11 +1052,11 @@ function closeModal(): void {
         (el as HTMLInputElement).value = '';
     });
     document.getElementById('current-episode-wrapper')!.classList.add('hidden');
-    // Reset Jikan search UI
-    (document.getElementById('jikan-query') as HTMLInputElement).value = '';
-    const jikanResults = document.getElementById('jikan-results')!;
-    jikanResults.classList.add('hidden');
-    jikanResults.innerHTML = '';
+    // Reset AniList search UI
+    (document.getElementById('anilist-query') as HTMLInputElement).value = '';
+    const anilistResults = document.getElementById('anilist-results')!;
+    anilistResults.classList.add('hidden');
+    anilistResults.innerHTML = '';
 
     // Reset TMDB search UI
     (document.getElementById('tmdb-query') as HTMLInputElement).value = '';
@@ -1025,6 +1090,7 @@ async function openEditModal(item: any): Promise<void> {
     selectedGenres = new Set(item.tags ?? []);
 
     // Show the modal, then init the genre picker (fetches latest genre list from DB)
+    rememberFocus();
     modalOverlay.classList.remove('hidden');
     await openGenrePicker();
     renderSelectedChips();
@@ -1051,6 +1117,8 @@ async function openEditModal(item: any): Promise<void> {
         // Pre-fill for both in_progress and dropped (visibility already set above)
         (document.getElementById('input-current-episode') as HTMLInputElement).value = item.fields.current_episode;
     }
+    // Editing an existing entry: start in the title field (auto-fill search isn't needed)
+    (document.getElementById('input-title') as HTMLInputElement).focus();
 }
 
 // ─── Genre Picker ─────────────────────────────────────────────────────────
@@ -1070,17 +1138,16 @@ async function openGenrePicker(): Promise<void> {
     if (picker.dataset.wired) return;
     picker.dataset.wired = 'true';
 
-    // Clicking anywhere on the picker container focuses the search input
-    picker.addEventListener('click', () => searchInput.focus());
-
-    // Show dropdown when the input gains focus
-    searchInput.addEventListener('focus', () => {
+    // Clicking anywhere on the picker container focuses the search input and opens the list.
+    // (Keyboard focus alone never opens it — that takes Enter, see the keydown handler below.)
+    picker.addEventListener('click', () => {
+        searchInput.focus();
         renderGenreDropdown(searchInput.value);
     });
 
-    // Filter the dropdown as the user types
+    // While the list is open, typing filters it live. A closed list stays closed until Enter.
     searchInput.addEventListener('input', () => {
-        renderGenreDropdown(searchInput.value);
+        if (!dropdown.classList.contains('hidden')) renderGenreDropdown(searchInput.value);
     });
 
     // Hide the dropdown when the input loses focus.
@@ -1091,12 +1158,46 @@ async function openGenrePicker(): Promise<void> {
         setTimeout(hideGenreDropdown, 150);
     });
 
-    // Pressing Enter selects the top item or creates a new genre
+    // Enter opens the list, and once it's open picks the highlighted item (a match, or "+ Add").
+    // ←/→ move the highlight while the list is open (↑/↓ always move between fields, handled by
+    // the dialog's field navigation). Backspace on an empty box removes the last genre chip.
     searchInput.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key !== 'Enter') return;
-        const topItem = dropdown.querySelector('.dropdown-item') as HTMLElement | null;
-        if (topItem) topItem.click();  // trigger the mousedown handler on the first item
+        switch (e.key) {
+            case 'Enter':
+                e.preventDefault();
+                if (dropdown.classList.contains('hidden')) renderGenreDropdown(searchInput.value);
+                else genreActions[genreHighlight]?.();
+                break;
+            case 'ArrowRight':
+            case 'ArrowLeft':
+                if (dropdown.classList.contains('hidden')) break;   // closed → normal cursor movement
+                e.preventDefault();
+                setGenreHighlight(genreHighlight + (e.key === 'ArrowRight' ? 1 : -1));
+                break;
+            case 'Backspace':
+                if (searchInput.value === '' && selectedGenres.size > 0) {
+                    const lastGenre = [...selectedGenres].pop()!;  // Sets keep insertion order
+                    selectedGenres.delete(lastGenre);
+                    renderSelectedChips();
+                    renderGenreDropdown('');
+                }
+                break;
+        }
     });
+}
+
+// What each row in the open genre dropdown does when chosen, in display order, and which row is highlighted.
+// Mouse (mousedown) and keyboard (Enter) both go through the same actions.
+let genreActions: (() => void)[] = [];
+let genreHighlight = 0;
+
+// Moves the highlight to row `index`, wrapping at both ends
+function setGenreHighlight(index: number): void {
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('#genre-dropdown .dropdown-item'));
+    if (rows.length === 0) return;
+    genreHighlight = (index + rows.length) % rows.length;
+    rows.forEach((row, i) => row.classList.toggle('highlighted', i === genreHighlight));
+    rows[genreHighlight].scrollIntoView({ block: 'nearest' });
 }
 
 // Rebuild the dropdown list based on the current search text.
@@ -1110,29 +1211,34 @@ function renderGenreDropdown(filter: string): void {
     );
 
     dropdown.innerHTML = '';  // clear previous items
+    genreActions = [];
 
-    // Show "Add X" option if the typed text doesn't exactly match an existing genre
-    const exactMatch = allGenres.some(g => g.toLowerCase() === lc);
-    if (filter.trim() && !exactMatch) {
-        const li = document.createElement('li');
-        li.className = 'dropdown-item add-new';
-        li.textContent = `+ Add "${filter.trim()}"`;
-        // mousedown fires before blur, so this click goes through even as the input loses focus
-        li.addEventListener('mousedown', () => addAndSelectGenre(filter.trim()));
-        dropdown.appendChild(li);
-    }
-
-    // One list item per matching genre
+    // One list item per matching genre. mousedown fires before the input's blur,
+    // so a click goes through even as the input loses focus.
     matches.forEach(genre => {
         const li = document.createElement('li');
         li.className = 'dropdown-item';
         li.textContent = genre;
         li.addEventListener('mousedown', () => selectGenre(genre));
         dropdown.appendChild(li);
+        genreActions.push(() => selectGenre(genre));
     });
+
+    // "Add X" goes last if the typed text doesn't exactly match an existing genre, so
+    // typing "act" + Enter picks "Action" rather than creating a genre called "act".
+    const exactMatch = allGenres.some(g => g.toLowerCase() === lc);
+    if (filter.trim() && !exactMatch) {
+        const li = document.createElement('li');
+        li.className = 'dropdown-item add-new';
+        li.textContent = `+ Add "${filter.trim()}"`;
+        li.addEventListener('mousedown', () => addAndSelectGenre(filter.trim()));
+        dropdown.appendChild(li);
+        genreActions.push(() => addAndSelectGenre(filter.trim()));
+    }
 
     // Hide the dropdown if there's nothing to show
     dropdown.classList.toggle('hidden', dropdown.children.length === 0);
+    setGenreHighlight(0);  // Enter picks the first row unless the user moves the highlight
 }
 
 // Add a genre to the selected set and refresh the chip display.
@@ -1202,7 +1308,7 @@ function initExtraFields(): void {
 }
 
 // Show only the extra field that matches the current type; hide and clear the rest.
-// Also shows the Jikan search section for anime and manga only.
+// Also shows the AniList search section for anime and manga only.
 function updateExtraFields(type: string): void {
     document.querySelectorAll('.extra-field').forEach(el => {
         (el as HTMLElement).classList.add('hidden');
@@ -1215,11 +1321,11 @@ function updateExtraFields(type: string): void {
         document.getElementById(fieldId)?.classList.remove('hidden');
     }
 
-    // Jikan covers anime and manga; TMDB covers movies and shows
-    const jikanSection = document.getElementById('jikan-section')!;
+    // AniList covers anime and manga; TMDB covers movies and shows
+    const anilistSection = document.getElementById('anilist-section')!;
     const tmdbSection  = document.getElementById('tmdb-section')!;
 
-    jikanSection.classList.toggle('hidden', type !== 'anime' && type !== 'manga');
+    anilistSection.classList.toggle('hidden', type !== 'anime' && type !== 'manga');
     tmdbSection.classList.toggle('hidden',  type !== 'movie' && type !== 'show');
 
     // Clear TMDB results if the section just got hidden
@@ -1301,12 +1407,16 @@ async function openSettings(): Promise<void> {
     // Pre-fill with whatever key is already saved
     const saved = await window.api.getApiKey('tmdb_api_key');
     input.value = saved ?? '';
+    rememberFocus();
     overlay.classList.remove('hidden');
     input.focus();
 }
 
 function closeSettings(): void {
+    capturingActionId = null;  // abandon any half-finished key binding
+    setKeybindMessage('');
     document.getElementById('settings-overlay')!.classList.add('hidden');
+    restoreFocus();
 }
 
 async function saveSettings(): Promise<void> {
@@ -1384,7 +1494,7 @@ function renderTmdbResults(results: any[], mediaType: string, existingEntries: a
 
     results.forEach((r: any) => {
         const li = document.createElement('li');
-        li.className = 'jikan-result';  // reuse Jikan result row styles
+        li.className = 'anilist-result';  // reuse AniList result row styles
 
         // TMDB uses 'title' for movies, 'name' for TV shows
         const title   = mediaType === 'show' ? r.name    : r.title;
@@ -1394,20 +1504,20 @@ function renderTmdbResults(results: any[], mediaType: string, existingEntries: a
         const meta    = [year, genres].filter(Boolean).join(' • ');
 
         const img = document.createElement('img');
-        img.className = 'jikan-thumb';
+        img.className = 'anilist-thumb';
         // w92 is a small TMDB poster size — perfect for the results list thumbnail
         img.src = r.poster_path ? `https://image.tmdb.org/t/p/w92${r.poster_path}` : '';
         img.alt = '';
 
         const infoDiv  = document.createElement('div');
-        infoDiv.className = 'jikan-info';
+        infoDiv.className = 'anilist-info';
 
         const titleDiv = document.createElement('div');
-        titleDiv.className = 'jikan-title';
+        titleDiv.className = 'anilist-title';
         titleDiv.textContent = title ?? '';
 
         const metaDiv  = document.createElement('div');
-        metaDiv.className = 'jikan-meta';
+        metaDiv.className = 'anilist-meta';
         metaDiv.textContent = meta;
 
         infoDiv.appendChild(titleDiv);
@@ -1464,6 +1574,910 @@ async function fillFromTmdb(result: any, mediaType: string): Promise<void> {
 
     document.getElementById('tmdb-results')!.classList.add('hidden');
     (document.getElementById('tmdb-query') as HTMLInputElement).value = '';
+}
+
+// ─── Keyboard Navigation ──────────────────────────────────────────────────
+// One document-level keydown listener routes every key (in Java terms: a single event
+// dispatcher). It decides what a key means from where focus is and which dialog is open:
+//   binding capture → the next key becomes the new shortcut (Settings)
+//   dialog open     → keys only affect that dialog (focus is trapped inside it)
+//   typing          → keys are left alone, except a few that leave the text box
+//   otherwise       → arrow keys move between cards, bound keys run actions
+
+const OVERLAY_TO_DIALOG: Record<string, string> = {
+    'modal-overlay':    'modal',
+    'settings-overlay': 'settings-modal',
+    'detail-overlay':   'detail-modal',
+    'help-overlay':     'help-modal',
+};
+
+// ── Rebindable keys ──
+// Every action the user can rebind. `group` is the heading shown in Settings and the help list.
+// Think of this table as an enum with data attached: the handlers below look actions up by id.
+interface KeyAction {
+    id:         string;
+    label:      string;
+    group:      string;
+    defaultKey: string;
+}
+
+const KEY_ACTIONS: KeyAction[] = [
+    { id: 'search',     label: 'Search',                       group: 'Views and filters', defaultKey: '/' },
+    { id: 'newEntry',   label: 'New entry',                    group: 'Views and filters', defaultKey: 'n' },
+    { id: 'tabAll',     label: 'All tab',                      group: 'Views and filters', defaultKey: 'a' },
+    { id: 'tabMyList',  label: 'My List tab',                  group: 'Views and filters', defaultKey: 'l' },
+    { id: 'typePrev',   label: 'Previous media type',          group: 'Views and filters', defaultKey: '[' },
+    { id: 'typeNext',   label: 'Next media type',              group: 'Views and filters', defaultKey: ']' },
+    { id: 'statusPrev', label: 'Previous status (My List)',    group: 'Views and filters', defaultKey: ',' },
+    { id: 'statusNext', label: 'Next status (My List)',        group: 'Views and filters', defaultKey: '.' },
+    { id: 'sort',       label: 'Cycle sort order',             group: 'Views and filters', defaultKey: 's' },
+    { id: 'genres',     label: 'Genre filter',                 group: 'Views and filters', defaultKey: 'g' },
+    { id: 'settings',   label: 'Settings',                     group: 'Views and filters', defaultKey: 'o' },
+    { id: 'help',       label: 'Shortcut list',                group: 'Views and filters', defaultKey: '?' },
+    { id: 'open',       label: 'Open details',                 group: 'Selected entry',    defaultKey: 'Enter' },
+    { id: 'edit',       label: 'Edit',                         group: 'Selected entry',    defaultKey: 'e' },
+    { id: 'delete',     label: 'Delete (press twice)',         group: 'Selected entry',    defaultKey: 'Delete' },
+    { id: 'genreMode',  label: 'Match ALL / ANY',              group: 'Genre filter list', defaultKey: 'm' },
+    { id: 'genreClear', label: 'Clear genre selection',        group: 'Genre filter list', defaultKey: 'c' },
+];
+
+// Keys with a fixed meaning that can't be assigned to an action
+const RESERVED_KEYS = new Set([
+    'Escape', 'Tab', ' ', 'Backspace',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown',
+]);
+const MODIFIER_KEYS = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph'];
+
+// localStorage is a small key/value store the browser keeps per app (like a Java Preferences node).
+const KEYBIND_STORAGE_KEY = 'media-library.keybinds';
+
+let keyBinds: Record<string, string> = {};      // action id → key
+let capturingActionId: string | null = null;    // set while Settings is waiting for a new key
+let genreFilterReturnEl: HTMLElement | null = null;  // card to return to when the genre filter closes
+
+// 0-5 are always the rating keys
+function isReservedKey(key: string): boolean {
+    return RESERVED_KEYS.has(key) || /^[0-5]$/.test(key);
+}
+
+// Letters are stored lowercase so Shift/Caps Lock don't change which shortcut fires
+function normalizeKey(e: KeyboardEvent): string {
+    return e.key.length === 1 ? e.key.toLowerCase() : e.key;
+}
+
+function actionForKey(key: string): string | undefined {
+    return KEY_ACTIONS.find(a => keyBinds[a.id] === key)?.id;
+}
+
+function keyLabel(key: string): string {
+    const names: Record<string, string> = {
+        ' ': 'Space', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+        Delete: 'Del', Escape: 'Esc', PageUp: 'PgUp', PageDown: 'PgDn',
+    };
+    return names[key] ?? (key.length === 1 ? key.toUpperCase() : key);
+}
+
+// Defaults first, then any saved overrides that are still valid
+function loadKeyBinds(): void {
+    let saved: Record<string, unknown> = {};
+    try {
+        const parsed = JSON.parse(localStorage.getItem(KEYBIND_STORAGE_KEY) ?? '{}');
+        if (parsed && typeof parsed === 'object') saved = parsed;
+    } catch { /* storage unavailable or corrupt → fall back to defaults */ }
+
+    keyBinds = {};
+    for (const action of KEY_ACTIONS) {
+        const key = saved[action.id];
+        keyBinds[action.id] = (typeof key === 'string' && key !== '' && !isReservedKey(key))
+            ? key
+            : action.defaultKey;
+    }
+}
+
+function saveKeyBinds(): void {
+    try { localStorage.setItem(KEYBIND_STORAGE_KEY, JSON.stringify(keyBinds)); } catch { /* not fatal */ }
+}
+
+// ── Key binding editor (lives in the Settings dialog) ──
+
+function setKeybindMessage(text: string): void {
+    document.getElementById('keybind-msg')!.textContent = text;
+}
+
+// Updates one row's button in place (a full re-render would steal focus while tabbing)
+function refreshKeybindButton(id: string): void {
+    const btn = document.querySelector<HTMLElement>(`#keybind-list .keybind-btn[data-action="${id}"]`);
+    if (!btn) return;
+    const capturing = capturingActionId === id;
+    btn.textContent = capturing ? 'Press a key…' : keyLabel(keyBinds[id]);
+    btn.classList.toggle('capturing', capturing);
+}
+
+function renderKeybindList(): void {
+    const list = document.getElementById('keybind-list')!;
+    list.innerHTML = '';
+
+    let group = '';
+    for (const action of KEY_ACTIONS) {
+        if (action.group !== group) {
+            group = action.group;
+            const heading = document.createElement('div');
+            heading.className = 'keybind-group';
+            heading.textContent = group;
+            list.appendChild(heading);
+        }
+
+        const row = document.createElement('div');
+        row.className = 'keybind-row';
+
+        const label = document.createElement('span');
+        label.className = 'keybind-label';
+        label.textContent = action.label;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'keybind-btn';
+        btn.dataset.action = action.id;
+        btn.textContent = keyLabel(keyBinds[action.id]);
+        btn.addEventListener('click', () => startKeyCapture(action.id));
+        // Clicking or tabbing away abandons the capture
+        btn.addEventListener('blur', () => {
+            if (capturingActionId === action.id) cancelKeyCapture();
+        });
+
+        row.appendChild(label);
+        row.appendChild(btn);
+        list.appendChild(row);
+    }
+}
+
+function startKeyCapture(id: string): void {
+    const previous = capturingActionId;
+    capturingActionId = id;
+    setKeybindMessage('');
+    if (previous && previous !== id) refreshKeybindButton(previous);
+    refreshKeybindButton(id);
+}
+
+function cancelKeyCapture(): void {
+    const id = capturingActionId;
+    capturingActionId = null;
+    setKeybindMessage('');
+    if (id) refreshKeybindButton(id);
+}
+
+// While capturing, the very next key press becomes the new binding (or is rejected with a reason).
+function handleKeyCapture(e: KeyboardEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat || MODIFIER_KEYS.includes(e.key)) return;   // wait for a real key
+    const id = capturingActionId!;
+
+    if (e.key === 'Escape') { cancelKeyCapture(); return; }
+    if (e.ctrlKey || e.altKey || e.metaKey) {
+        setKeybindMessage('Shortcuts are single keys; Ctrl/Alt combinations aren\'t supported.');
+        return;
+    }
+
+    const key = normalizeKey(e);
+    if (isReservedKey(key)) {
+        setKeybindMessage(`${keyLabel(key)} is reserved (navigation, rating and dialog keys).`);
+        return;
+    }
+    const clash = KEY_ACTIONS.find(a => a.id !== id && keyBinds[a.id] === key);
+    if (clash) {
+        setKeybindMessage(`${keyLabel(key)} is already used by "${clash.label}". Rebind that one first.`);
+        return;
+    }
+
+    keyBinds[id] = key;
+    saveKeyBinds();
+    capturingActionId = null;
+    setKeybindMessage('');
+    refreshKeybindButton(id);
+}
+
+function resetKeyBinds(): void {
+    capturingActionId = null;
+    keyBinds = {};
+    for (const action of KEY_ACTIONS) keyBinds[action.id] = action.defaultKey;
+    saveKeyBinds();
+    setKeybindMessage('');
+    renderKeybindList();
+}
+
+// ── Focus helpers ──
+
+function getCards(): HTMLElement[] {
+    return Array.from(mediaGrid.querySelectorAll<HTMLElement>('.media-card'));
+}
+
+// Gives keyboard focus to the card at `index` (clamped) and scrolls it into view.
+function focusCard(index: number): void {
+    const cards = getCards();
+    const card = cards[Math.max(0, Math.min(index, cards.length - 1))];
+    if (!card) return;
+    card.focus({ preventScroll: true });
+    card.scrollIntoView({ block: 'nearest' });
+}
+
+// The dialog currently on screen, or null. Only one is ever open at a time.
+function visibleOverlay(): HTMLElement | null {
+    for (const id of Object.keys(OVERLAY_TO_DIALOG)) {
+        const el = document.getElementById(id);
+        if (el && !el.classList.contains('hidden')) return el;
+    }
+    return null;
+}
+
+// Remember where focus was so closing a dialog drops the user back on the same card.
+function rememberFocus(): void {
+    const active = document.activeElement as HTMLElement | null;
+    returnFocusEl = (active?.closest('.media-card') as HTMLElement | null) ?? active;
+}
+
+function restoreFocus(): void {
+    const el = returnFocusEl;
+    returnFocusEl = null;
+    if (el && el !== document.body && document.contains(el)) el.focus({ preventScroll: true });
+}
+
+function isTypingTarget(el: HTMLElement): boolean {
+    return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable;
+}
+
+function clearPendingDelete(): void {
+    window.clearTimeout(pendingDeleteTimer);
+    pendingDeleteCard?.classList.remove('confirm-delete');
+    pendingDeleteCard = null;
+}
+
+// ── Help dialog (built from the current bindings, so it always matches Settings) ──
+
+function renderHelp(): void {
+    const k = (id: string) => keyLabel(keyBinds[id]);
+    // Each row: [key labels shown as keycaps, description]
+    const sections: { heading: string; rows: [string[], string][] }[] = [
+        { heading: 'Move around the library', rows: [
+            [['←', '→', '↑', '↓'],              'Move between entries'],
+            [['Home', 'End'],                    'First / last entry'],
+            [['PgUp', 'PgDn'],                   'Jump 3 rows'],
+            [[k('search')],                      'Search (↓ or Esc returns to the grid)'],
+            [[k('tabAll'), k('tabMyList')],      'All / My List tabs'],
+        ]},
+        { heading: 'On the selected entry', rows: [
+            [[k('open')],                        'Open details (↑/↓ scroll, ←/→ flips between entries)'],
+            [[k('edit')],                        'Edit (also works in the details view)'],
+            [['1–5'],                            'Rate (same number again clears)'],
+            [['0'],                              'Clear rating'],
+            [[k('delete')],                      'Delete (press twice to confirm)'],
+        ]},
+        { heading: 'Views and filters', rows: [
+            [[k('typePrev'), k('typeNext')],     'Previous / next media type'],
+            [[k('statusPrev'), k('statusNext')], 'Previous / next status (My List)'],
+            [[k('sort')],                        'Cycle sort order'],
+        ]},
+        { heading: 'Genre filter', rows: [
+            [[k('genres')],                      'Open it and start typing to filter'],
+            [['Enter'],                          'In the box: toggle the first match'],
+            [['↓'],                              'In the box: browse the genre list'],
+            [['←', '→', '↑', '↓'],               'In the list: move between genres'],
+            [['Enter'],                          'In the list: toggle the genre'],
+            [[k('genreMode'), k('genreClear')],  'In the list: match ALL/ANY, clear all'],
+            [['Esc'],                            'Close it and return to the entries'],
+        ]},
+        { heading: 'Entries and dialogs', rows: [
+            [[k('newEntry')],                    'New entry'],
+            [[k('settings')],                    'Settings'],
+            [['↑', '↓'],                         'Add/Edit: only ever move between fields'],
+            [['←', '→'],                         'Add/Edit: step through lists (drop-down value, rating, auto-fill results, genres) or switch Cancel/Save'],
+            [['Enter'],                          'Add/Edit: open a drop-down or the genre list, run the auto-fill search; in the genre list, pick the highlighted genre'],
+            [['→'],                              'Auto-fill box (cursor at the end): step into the results'],
+            [['⌫'],                              'Genres box (empty): remove the last genre'],
+            [['Ctrl', 'Enter'],                  'Save the open dialog'],
+            [['Esc'],                            'Close dialog / leave a text box'],
+            [[k('help')],                        'Show this list'],
+            [['Ctrl', 'S'],                      'Show this list (works anywhere, even while typing)'],
+        ]},
+    ];
+
+    const body = document.getElementById('help-body')!;
+    body.innerHTML = '';
+    for (const section of sections) {
+        const sectionEl = document.createElement('div');
+        sectionEl.className = 'help-section';
+
+        const heading = document.createElement('div');
+        heading.className = 'help-heading';
+        heading.textContent = section.heading;
+        sectionEl.appendChild(heading);
+
+        for (const [keys, text] of section.rows) {
+            const row = document.createElement('div');
+            row.className = 'help-row';
+            const keysEl = document.createElement('span');
+            keysEl.className = 'help-keys';
+            for (const label of keys) {
+                const kbd = document.createElement('kbd');
+                kbd.textContent = label;
+                keysEl.appendChild(kbd);
+            }
+            const textEl = document.createElement('span');
+            textEl.textContent = text;
+            row.appendChild(keysEl);
+            row.appendChild(textEl);
+            sectionEl.appendChild(row);
+        }
+        body.appendChild(sectionEl);
+    }
+    document.getElementById('help-settings-key')!.textContent = k('settings');
+}
+
+function openHelp(): void {
+    rememberFocus();
+    renderHelp();
+    document.getElementById('help-overlay')!.classList.remove('hidden');
+    document.getElementById('help-modal')!.focus();  // tabindex="-1" is set in initKeyboardNavigation
+}
+
+function closeHelp(): void {
+    document.getElementById('help-overlay')!.classList.add('hidden');
+    restoreFocus();
+}
+
+// In the Add dialog, start where the user most likely wants to type:
+// the auto-fill search for anime/manga/movie/show, or the title for books.
+function focusFirstModalField(): void {
+    const visible = (id: string) => !document.getElementById(id)!.classList.contains('hidden');
+    const target = visible('anilist-section') ? 'anilist-query'
+                 : visible('tmdb-section')    ? 'tmdb-query'
+                 : 'input-title';
+    (document.getElementById(target) as HTMLInputElement).focus();
+}
+
+function initKeyboardNavigation(): void {
+    loadKeyBinds();
+    renderKeybindList();
+
+    // Roving tabindex: only the focused card is a Tab stop, so Tab enters the grid once
+    // and the next Tab leaves it, instead of stepping through every card.
+    mediaGrid.addEventListener('focusin', (e) => {
+        const card = (e.target as HTMLElement).closest('.media-card') as HTMLElement | null;
+        if (card) getCards().forEach(c => { c.tabIndex = (c === card) ? 0 : -1; });
+    });
+
+    document.getElementById('help-modal')!.tabIndex = -1;
+    document.getElementById('help-btn')!.addEventListener('click', openHelp);
+    document.getElementById('help-overlay')!.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).id === 'help-overlay') closeHelp();
+    });
+    document.getElementById('keybind-reset')!.addEventListener('click', resetKeyBinds);
+
+    document.addEventListener('keydown', handleKeydown);
+}
+
+function handleKeydown(e: KeyboardEvent): void {
+    // Settings is waiting for a new key: nothing else may react to this press
+    if (capturingActionId) { handleKeyCapture(e); return; }
+
+    const target  = e.target as HTMLElement;
+    const overlay = visibleOverlay();
+    const key     = normalizeKey(e);
+
+    // Any key other than a second Delete press cancels a pending delete confirmation
+    if (key !== keyBinds['delete'] && e.key !== 'Shift') clearPendingDelete();
+
+    // Ctrl+Enter saves whichever form dialog is open, from any field
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        if (overlay?.id === 'modal-overlay')         { e.preventDefault(); void saveNewEntry(); }
+        else if (overlay?.id === 'settings-overlay') { e.preventDefault(); void saveSettings(); }
+        return;
+    }
+    // Ctrl+S toggles the shortcut list (fixed key; works even while typing). Other dialogs
+    // keep it to themselves, but we still swallow the key so nothing else reacts to it.
+    if (key === 's' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+        e.preventDefault();
+        if (overlay?.id === 'help-overlay') closeHelp();
+        else if (!overlay) openHelp();
+        return;
+    }
+    // Leave browser/OS shortcuts (Ctrl+R, Alt+Left, ...) alone
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === 'Escape') { handleEscape(e, overlay); return; }
+
+    if (overlay) {
+        if (e.key === 'Tab')                          trapTab(e, overlay);
+        else if (overlay.id === 'detail-overlay')     handleDetailKeys(e);
+        else if (overlay.id === 'modal-overlay')      handleModalKeys(e, target);
+        return;
+    }
+
+    // Typing in a text box: leave keys alone, except a few that move out of it
+    if (isTypingTarget(target)) {
+        if (target === searchInput && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+            e.preventDefault();
+            focusCard(0);
+        } else if (target.id === 'genre-filter-search') {
+            handleGenreFilterKeys(e, target);
+        }
+        return;
+    }
+
+    if (target.classList.contains('genre-filter-item') && handleGenreFilterKeys(e, target)) return;
+    if (handleShortcut(e)) return;
+    handleGridKeys(e, target);
+}
+
+function handleEscape(e: KeyboardEvent, overlay: HTMLElement | null): void {
+    const target = e.target as HTMLElement;
+
+    if (overlay) {
+        switch (overlay.id) {
+            case 'help-overlay':     closeHelp();        break;
+            case 'settings-overlay': closeSettings();    break;
+            case 'detail-overlay':   closeDetailModal(); break;
+            case 'modal-overlay': {
+                // With the genre dropdown open, Esc closes just the dropdown, not the whole dialog
+                const dropdown = document.getElementById('genre-dropdown')!;
+                if (target.id === 'genre-search' && !dropdown.classList.contains('hidden')) hideGenreDropdown();
+                else closeModal();
+                break;
+            }
+        }
+        return;
+    }
+
+    // Esc from the genre filter closes it and goes straight back to the entries
+    const filterDropdown = document.getElementById('genre-filter-dropdown')!;
+    if (!filterDropdown.classList.contains('hidden')) {
+        filterDropdown.classList.add('hidden');
+        const previous = genreFilterReturnEl;
+        genreFilterReturnEl = null;
+        if (previous && document.contains(previous)) previous.focus({ preventScroll: true });
+        else focusCard(0);
+        return;
+    }
+
+    // Esc in the search box leaves it and returns to the grid
+    if (target === searchInput) {
+        searchInput.blur();
+        focusCard(0);
+    }
+}
+
+// Keeps Tab / Shift+Tab cycling inside the open dialog instead of escaping to the page behind it.
+function trapTab(e: KeyboardEvent, overlay: HTMLElement): void {
+    const dialog = document.getElementById(OVERLAY_TO_DIALOG[overlay.id])!;
+    const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(el => !el.hasAttribute('disabled') && el.offsetParent !== null);  // offsetParent null = hidden
+
+    if (focusables.length === 0) { e.preventDefault(); return; }
+    const first  = focusables[0];
+    const last   = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement;
+
+    if (!dialog.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+    }
+}
+
+// Detail view: ↑/↓ (and PgUp/PgDn, Home/End) scroll the panel, the Edit key edits this entry,
+// ←/→ flips to the previous/next entry in the grid.
+function handleDetailKeys(e: KeyboardEvent): void {
+    // Keyboard focus stays on the card behind the panel, so without this the browser would
+    // scroll that grid instead of the long description in front.
+    const content = document.getElementById('detail-content');
+    if (content) {
+        const page = content.clientHeight * 0.9;
+        const scrollBy: Record<string, number> = { ArrowDown: 48, ArrowUp: -48, PageDown: page, PageUp: -page };
+        if (e.key in scrollBy) {
+            e.preventDefault();
+            content.scrollBy({ top: scrollBy[e.key] });
+            return;
+        }
+        if (e.key === 'Home' || e.key === 'End') {
+            e.preventDefault();
+            content.scrollTo({ top: e.key === 'Home' ? 0 : content.scrollHeight });
+            return;
+        }
+    }
+
+    const current = returnFocusEl?.closest('.media-card') as HTMLElement | null;
+    if (!current) return;
+
+    if (actionForKey(normalizeKey(e)) === 'edit') {
+        e.preventDefault();
+        const handlers = cardHandlers.get(current);
+        closeDetailModal();   // restores focus to the card, so the edit dialog remembers it
+        handlers?.edit();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const cards = getCards();
+        const next  = cards[cards.indexOf(current) + (e.key === 'ArrowRight' ? 1 : -1)];
+        if (!next) return;
+        returnFocusEl = next;  // closing the detail view will land on the entry the user ended on
+        cardHandlers.get(next)?.open();
+    }
+}
+
+// Things you can move between with ↑/↓ in the Add/Edit dialog, in on-screen order.
+// The five rating stars count as one stop (arrows inside them change the rating).
+function modalFieldStops(): HTMLElement[] {
+    const stops = Array.from(document.getElementById('modal')!.querySelectorAll<HTMLElement>(
+        'input, select, textarea, #star-rating .star, #modal-cancel, #modal-save'
+    )).filter(el => el.offsetParent !== null && !el.hasAttribute('disabled'));  // offsetParent null = hidden
+    return stops.filter(el => !el.classList.contains('star') || el.dataset.value === '1');
+}
+
+function focusModalStop(el: HTMLElement): void {
+    if (el.classList.contains('star')) {
+        // Land on the star matching the current rating (or the first one if unrated)
+        const stars = document.querySelectorAll<HTMLElement>('#star-rating .star');
+        stars[(currentRating ?? 1) - 1].focus();
+        return;
+    }
+    el.focus();
+    if (el instanceof HTMLInputElement && (el.type === 'text' || el.type === 'number')) el.select();
+}
+
+function moveModalFocus(current: HTMLElement, step: 1 | -1): void {
+    const stops = modalFieldStops();
+    const here  = current.classList.contains('star') ? stops.find(el => el.dataset.value === '1')! : current;
+    const i     = stops.indexOf(here);
+    if (i < 0) return;
+    const next = stops[i + step];
+    if (next) focusModalStop(next);
+}
+
+// The results list that belongs to an auto-fill search box (AniList or TMDB)
+function resultsListFor(queryInputId: string): HTMLElement {
+    return document.getElementById(queryInputId === 'anilist-query' ? 'anilist-results' : 'tmdb-results')!;
+}
+
+// Result rows need a tabindex before they can take focus
+function resultItemsIn(list: HTMLElement): HTMLElement[] {
+    const items = Array.from(list.querySelectorAll<HTMLElement>('.anilist-result'));
+    items.forEach(li => { li.tabIndex = -1; });
+    return items;
+}
+
+// Arrow keys inside the Add/Edit dialog follow two rules:
+//   ↑/↓ ONLY move between fields, everywhere — never inside a list, drop-down or text box.
+//   ←/→ move through lists: the star rating, a drop-down's options, the auto-fill results,
+//       the genre dropdown (see openGenrePicker), and Cancel/Save.
+// Drop-downs (Type, Status) open only on Enter. Returns true if the key was used.
+function handleModalFieldKeys(e: KeyboardEvent, target: HTMLElement): boolean {
+    const up = e.key === 'ArrowUp', down = e.key === 'ArrowDown';
+    const left = e.key === 'ArrowLeft', right = e.key === 'ArrowRight';
+
+    // ── Drop-downs: Enter opens the list (Space would too by default, so it's blocked).
+    // ←/→ are left alone: the browser already steps a closed drop-down through its options with them.
+    if (target instanceof HTMLSelectElement) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            (target as any).showPicker?.();   // opens the native list
+            return true;
+        }
+        if (e.key === ' ') { e.preventDefault(); return true; }
+    }
+
+    // ── Rating stars ──
+    if (target.classList.contains('star')) {
+        let rating: number | null | undefined;   // undefined = this key isn't a rating key
+        if (right)                        rating = Math.min((currentRating ?? 0) + 1, 5);
+        else if (left)                    rating = (currentRating ?? 0) > 1 ? (currentRating as number) - 1 : null;
+        else if (/^[0-5]$/.test(e.key))   rating = e.key === '0' ? null : Number(e.key);
+        if (rating !== undefined) {
+            e.preventDefault();
+            currentRating = rating;
+            renderStars(rating ?? 0);
+            document.querySelectorAll<HTMLElement>('#star-rating .star')[(rating ?? 1) - 1].focus();
+            return true;
+        }
+    }
+
+    // ── Cancel / Save buttons ──
+    if (target.id === 'modal-cancel' || target.id === 'modal-save') {
+        if (left || right) {
+            e.preventDefault();
+            document.getElementById(left ? 'modal-cancel' : 'modal-save')!.focus();
+            return true;
+        }
+        if (up) {
+            e.preventDefault();
+            document.getElementById('input-notes')!.focus();
+            return true;
+        }
+        return false;
+    }
+
+    // ── Auto-fill results: ←/→ step through them, ←  from the first row returns to the box ──
+    if (target.classList.contains('anilist-result')) {
+        const list  = target.parentElement as HTMLElement;
+        const items = resultItemsIn(list);
+        const i     = items.indexOf(target);
+        const queryId = list.id === 'anilist-results' ? 'anilist-query' : 'tmdb-query';
+
+        if (right) {
+            e.preventDefault();
+            items[Math.min(i + 1, items.length - 1)].focus();
+            return true;
+        }
+        if (left) {
+            e.preventDefault();
+            if (i === 0) document.getElementById(queryId)!.focus();
+            else items[i - 1].focus();
+            return true;
+        }
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            target.click();   // fills the form, then carry on typing in the title
+            (document.getElementById('input-title') as HTMLInputElement).focus();
+            return true;
+        }
+        if (up || down) {     // ↑/↓ leave the list and move between fields, from the search box's position
+            e.preventDefault();
+            moveModalFocus(document.getElementById(queryId)!, down ? 1 : -1);
+            return true;
+        }
+        return false;
+    }
+
+    // → at the end of the auto-fill box steps into its results (if a search has produced any)
+    if ((target.id === 'anilist-query' || target.id === 'tmdb-query') && right) {
+        const input = target as HTMLInputElement;
+        const list  = resultsListFor(target.id);
+        if (input.selectionStart === input.value.length && !list.classList.contains('hidden')) {
+            const items = resultItemsIn(list);
+            if (items.length > 0) {
+                e.preventDefault();
+                items[0].focus();
+                return true;
+            }
+        }
+        return false;   // otherwise → just moves the text cursor
+    }
+
+    // ── ↑/↓: always move between fields ──
+    // preventDefault stops the browser's own use of the key (changing a drop-down's option,
+    // stepping a number, moving the cursor between lines in Notes).
+    if ((up || down) && (target instanceof HTMLInputElement || target instanceof HTMLSelectElement ||
+                         target instanceof HTMLTextAreaElement || target.classList.contains('star'))) {
+        e.preventDefault();
+        moveModalFocus(target, down ? 1 : -1);
+        return true;
+    }
+    return false;
+}
+
+// Add/Edit dialog keys (everything is in handleModalFieldKeys; the genre box adds its own
+// Enter/←/→ handling in openGenrePicker).
+function handleModalKeys(e: KeyboardEvent, target: HTMLElement): void {
+    handleModalFieldKeys(e, target);
+}
+
+// ── Genre filter (header panel) ──
+
+// Genres currently shown, i.e. not hidden by the filter box
+function visibleGenreItems(): HTMLElement[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('#genre-filter-list .genre-filter-item:not(.filtered-out)'));
+}
+
+// Hides genres that don't contain the text typed in the filter box
+function applyGenreFilterText(): void {
+    const query = (document.getElementById('genre-filter-search') as HTMLInputElement).value.trim().toLowerCase();
+    document.querySelectorAll<HTMLElement>('#genre-filter-list .genre-filter-item').forEach(li => {
+        li.classList.toggle('filtered-out', query !== '' && !(li.textContent ?? '').toLowerCase().includes(query));
+    });
+}
+
+// Opens the panel (if closed) and puts the cursor in the filter box
+function openGenreFilter(): void {
+    // Remember the selected card so Esc can return to it
+    genreFilterReturnEl = (document.activeElement as HTMLElement | null)?.closest('.media-card') as HTMLElement | null;
+    document.getElementById('genre-filter-dropdown')!.classList.remove('hidden');
+    const input = document.getElementById('genre-filter-search') as HTMLInputElement;
+    input.focus();
+    input.select();
+}
+
+// The genre chips wrap onto several rows, so ↑/↓ needs to find the chip in the next row
+// that sits closest to the current one horizontally. Returns null at the first/last row.
+function chipInAdjacentRow(items: HTMLElement[], current: HTMLElement, direction: 1 | -1): HTMLElement | null {
+    const centerX = (el: HTMLElement) => el.offsetLeft + el.offsetWidth / 2;
+    const rowTops = Array.from(new Set(items.map(el => el.offsetTop))).sort((a, b) => a - b);
+    const row = rowTops.indexOf(current.offsetTop) + direction;
+    if (row < 0 || row >= rowTops.length) return null;
+
+    const candidates = items.filter(el => el.offsetTop === rowTops[row]);
+    return candidates.reduce((best, el) =>
+        Math.abs(centerX(el) - centerX(current)) < Math.abs(centerX(best) - centerX(current)) ? el : best
+    );
+}
+
+// Keys inside the genre filter: the filter box and the genre chips. Returns true if the key was used.
+function handleGenreFilterKeys(e: KeyboardEvent, target: HTMLElement): boolean {
+    const input = document.getElementById('genre-filter-search') as HTMLInputElement;
+    const items = visibleGenreItems();
+
+    // ── In the filter box ──
+    if (target === input) {
+        if (e.key === 'ArrowDown' && items.length > 0) {
+            e.preventDefault();
+            items[0].focus();
+            return true;
+        }
+        if (e.key === 'Enter' && input.value.trim() && items.length > 0) {
+            // Type a few letters + Enter = toggle the first match, then keep typing
+            e.preventDefault();
+            items[0].click();
+            input.value = '';
+            applyGenreFilterText();
+            return true;
+        }
+        return false;   // everything else is normal typing
+    }
+
+    // ── On a genre chip ──
+    const i = items.indexOf(target);
+    const action = actionForKey(normalizeKey(e));
+
+    if (action === 'genreMode') {
+        e.preventDefault();
+        document.querySelector<HTMLElement>('.genre-mode-btn:not(.active)')?.click();  // flips ALL ⇄ ANY
+        return true;
+    }
+    if (action === 'genreClear') {
+        e.preventDefault();
+        document.getElementById('genre-filter-clear')!.click();
+        return true;
+    }
+
+    switch (e.key) {
+        case 'ArrowRight': items[Math.min(i + 1, items.length - 1)].focus(); break;
+        case 'ArrowLeft':  items[Math.max(i - 1, 0)].focus();                break;
+        case 'ArrowDown':  (chipInAdjacentRow(items, target, 1) ?? target).focus(); break;
+        case 'ArrowUp':    (chipInAdjacentRow(items, target, -1) ?? input).focus(); break;  // top row → back to the box
+        case 'Home':       items[0].focus();                  break;
+        case 'End':        items[items.length - 1].focus();   break;
+        case 'Enter':
+        case ' ':          target.click();                    break;
+        case 'Backspace':  input.focus();                     break;
+        default:
+            // Typing a character from the list jumps back to the box and types it there
+            if (e.key.length === 1) {
+                input.focus();
+                input.value += e.key;
+                applyGenreFilterText();
+                break;
+            }
+            return false;
+    }
+    e.preventDefault();
+    return true;
+}
+
+// Bound-key shortcuts that work anywhere outside a text box. Each one just clicks the
+// button a mouse user would, so keyboard and mouse always stay in sync. Returns true if used.
+function handleShortcut(e: KeyboardEvent): boolean {
+    const id = actionForKey(normalizeKey(e));
+    if (!id) return false;
+    const clickEl = (selector: string) => document.querySelector<HTMLElement>(selector)!.click();
+
+    switch (id) {
+        case 'search':
+            clickEl('.tab-btn[data-tab="search"]');
+            searchInput.focus();
+            searchInput.select();
+            break;
+        case 'newEntry':   clickEl('#add-media-btn');              break;
+        case 'tabAll':     clickEl('.tab-btn[data-tab="all"]');    break;
+        case 'tabMyList':  clickEl('.tab-btn[data-tab="mylist"]'); break;
+        case 'sort':       clickEl('#sort-btn');                   break;
+        case 'typePrev':   cycleFilter('.filter-btn', 'type', currentTypeFilter, -1); break;
+        case 'typeNext':   cycleFilter('.filter-btn', 'type', currentTypeFilter,  1); break;
+        case 'statusPrev': cycleStatus(-1); break;
+        case 'statusNext': cycleStatus(1);  break;
+        case 'genres':     openGenreFilter(); break;
+        case 'settings':   clickEl('#settings-btn'); break;
+        case 'help':       openHelp(); break;
+        default:           return false;   // card and genre-list actions are handled elsewhere
+    }
+    e.preventDefault();
+    return true;
+}
+
+// Clicks the chip/item next to the active one, wrapping around at the ends.
+function cycleFilter(selector: string, dataKey: string, current: string, step: number): void {
+    const items = Array.from(document.querySelectorAll<HTMLElement>(selector));
+    const i = items.findIndex(el => el.dataset[dataKey] === current);
+    items[(i + step + items.length) % items.length].click();
+}
+
+// Previous/next status in My List (switches to that tab first if needed).
+function cycleStatus(step: number): void {
+    if (currentTab !== 'mylist') {
+        document.querySelector<HTMLElement>('.tab-btn[data-tab="mylist"]')!.click();
+    }
+    cycleFilter('.status-item', 'status', currentStatusFilter, step);
+}
+
+// Arrow keys move between cards; the bound keys, 0-5 and Space act on the focused card.
+function handleGridKeys(e: KeyboardEvent, target: HTMLElement): void {
+    const cards = getCards();
+    if (cards.length === 0) return;
+
+    const card = target.closest('.media-card') as HTMLElement | null;
+    const i    = card ? cards.indexOf(card) : -1;
+    const last = cards.length - 1;
+
+    const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+    if (navKeys.includes(e.key)) {
+        // With focus on a sidebar button etc., arrows keep their normal meaning.
+        // Nothing focused (body) → arrows start navigating from the first card.
+        if (!card && target !== document.body) return;
+        e.preventDefault();
+        if (!card) { focusCard(0); return; }
+
+        // Column count = how many cards share the first card's row
+        let cols = 0;
+        for (const c of cards) { if (c.offsetTop !== cards[0].offsetTop) break; cols++; }
+        cols = Math.max(cols, 1);
+
+        let next = i;
+        switch (e.key) {
+            case 'ArrowLeft':  next = i - 1; break;
+            case 'ArrowRight': next = i + 1; break;
+            case 'ArrowUp':    next = i - cols; break;
+            case 'ArrowDown':
+                // Below a partial last row there's no card straight down: land on the final card instead
+                next = (i + cols <= last) ? i + cols
+                     : (Math.floor(i / cols) < Math.floor(last / cols) ? last : i);
+                break;
+            case 'PageUp':     next = i - cols * 3; break;
+            case 'PageDown':   next = i + cols * 3; break;
+            case 'Home':       next = 0;    break;
+            case 'End':        next = last; break;
+        }
+        focusCard(next);
+        return;
+    }
+
+    if (!card) return;
+    const handlers = cardHandlers.get(card);
+    if (!handlers) return;
+
+    const action = actionForKey(normalizeKey(e));
+    if (e.key === ' ' || action === 'open') {      // Space always opens, as on any button
+        e.preventDefault();
+        handlers.open();
+    } else if (action === 'edit') {
+        e.preventDefault();
+        handlers.edit();
+    } else if (action === 'delete') {
+        e.preventDefault();
+        if (pendingDeleteCard === card) {
+            clearPendingDelete();
+            void handlers.remove();
+        } else {
+            clearPendingDelete();
+            card.classList.add('confirm-delete');
+            pendingDeleteCard  = card;
+            pendingDeleteTimer = window.setTimeout(clearPendingDelete, 3000);
+        }
+    } else if (/^[0-5]$/.test(e.key)) {
+        e.preventDefault();
+        handlers.rate(e.key === '0' ? null : Number(e.key));
+    }
 }
 
 // ─── Tab Switching ────────────────────────────────────────────────────────

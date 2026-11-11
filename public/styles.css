@@ -1000,24 +1000,24 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   JIKAN AUTO-FILL (MyAnimeList search in modal)
+   ANILIST AUTO-FILL (anime/manga search in modal)
    ═══════════════════════════════════════════════════════════ */
 
-#jikan-section.hidden { display: none; }
+#anilist-section.hidden { display: none; }
 #tmdb-section.hidden  { display: none; }
 
 /* Row with the text input + search button side by side */
-#jikan-search-row,
+#anilist-search-row,
 #tmdb-search-row {
     display: flex;
     gap: 8px;
 }
 
 /* The text input takes all remaining width */
-#jikan-query,
+#anilist-query,
 #tmdb-query { flex: 1; }
 
-#jikan-search-btn,
+#anilist-search-btn,
 #tmdb-search-btn {
     padding: 8px 14px;
     background: var(--bg-hover);
@@ -1030,21 +1030,21 @@ body {
     transition: background 0.12s, border-color 0.12s;
 }
 
-#jikan-search-btn:hover,
+#anilist-search-btn:hover,
 #tmdb-search-btn:hover {
     background: var(--accent);
     border-color: var(--accent);
     color: white;
 }
 
-#jikan-search-btn:disabled,
+#anilist-search-btn:disabled,
 #tmdb-search-btn:disabled {
     opacity: 0.5;
     cursor: default;
 }
 
 /* Results list container */
-#jikan-results,
+#anilist-results,
 #tmdb-results {
     list-style: none;
     background: var(--bg-card);
@@ -1055,11 +1055,11 @@ body {
     overflow-y: auto;
 }
 
-#jikan-results.hidden,
+#anilist-results.hidden,
 #tmdb-results.hidden { display: none; }
 
 /* One result row: thumbnail on the left, info on the right */
-.jikan-result {
+.anilist-result {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -1069,11 +1069,11 @@ body {
     transition: background 0.1s;
 }
 
-.jikan-result:last-child { border-bottom: none; }
-.jikan-result:hover { background: var(--bg-hover); }
+.anilist-result:last-child { border-bottom: none; }
+.anilist-result:hover { background: var(--bg-hover); }
 
 /* Small cover thumbnail in the results list */
-.jikan-thumb {
+.anilist-thumb {
     width: 36px;
     height: 50px;
     object-fit: cover;   /* crop to fill without stretching */
@@ -1082,9 +1082,9 @@ body {
     background: var(--bg-hover);  /* placeholder color while image loads */
 }
 
-.jikan-info { min-width: 0; }  /* allows text-overflow: ellipsis to work inside flex */
+.anilist-info { min-width: 0; }  /* allows text-overflow: ellipsis to work inside flex */
 
-.jikan-title {
+.anilist-title {
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-primary);
@@ -1093,7 +1093,7 @@ body {
     text-overflow: ellipsis;
 }
 
-.jikan-meta {
+.anilist-meta {
     font-size: 0.73rem;
     color: var(--text-secondary);
     margin-top: 2px;
@@ -1368,4 +1368,259 @@ body {
 .dropdown-item.add-new:hover {
     background: rgba(233, 69, 96, 0.1);
     color: var(--accent);
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   KEYBOARD NAVIGATION
+   ═══════════════════════════════════════════════════════════ */
+
+/* Selected card: :focus-visible only shows for keyboard focus, so mouse clicks stay clean */
+.media-card { scroll-margin: 24px; }   /* keeps padding visible when scrolled into view */
+.media-card:focus { outline: none; }
+.media-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-color: var(--accent);
+    transform: translateY(-3px);
+}
+
+/* First Delete press: red outline + hint; second press removes the entry */
+.media-card.confirm-delete {
+    outline: 2px solid #ff5c5c;
+    outline-offset: 2px;
+    border-color: #ff5c5c;
+}
+.media-card.confirm-delete::after {
+    content: "Press Delete again to remove";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 6px 8px;
+    background: #ff5c5c;
+    color: #1a1a2e;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+/* Auto-fill result rows are reachable with the arrow keys */
+.anilist-result:focus { outline: none; background: var(--bg-hover); }
+.genre-filter-item:focus { outline: none; }
+.genre-filter-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Visible keyboard focus for buttons that had no focus style */
+#sidebar button:focus-visible,
+#content-header button:focus-visible,
+#genre-filter-dropdown button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Shortcuts button (matches the Settings button) */
+#help-btn {
+    margin: 0 12px 12px;
+    padding: 7px 16px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: color 0.12s, border-color 0.12s;
+    flex-shrink: 0;
+}
+#help-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+/* Shortcuts overlay */
+#help-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 110;
+}
+#help-overlay.hidden { display: none; }
+
+#help-modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 28px;
+    width: 640px;
+    max-width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+#help-modal h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+#help-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 18px 28px;
+}
+.help-section { min-width: 0; }
+.help-heading {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+}
+.help-row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    padding: 4px 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+.help-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.help-keys {
+    flex: 0 0 120px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    color: var(--text-secondary);
+}
+kbd {
+    display: inline-block;
+    min-width: 22px;
+    padding: 1px 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: 0.74rem;
+    color: var(--text-primary);
+    text-align: center;
+}
+
+/* ── Genre navigation ─────────────────────────────────────── */
+#genre-filter-search-row {
+    padding: 10px 20px 0;
+    flex-shrink: 0;
+}
+#genre-filter-search {
+    width: 100%;
+    padding: 7px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    outline: none;
+}
+#genre-filter-search:focus { border-color: var(--accent); }
+.genre-filter-item.filtered-out { display: none; }
+
+/* Highlighted row in the Add/Edit dialog's genre dropdown (moved with ↑/↓, picked with Enter) */
+.dropdown-item.highlighted {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* ── Key binding editor (Settings) ────────────────────────── */
+#settings-modal {
+    max-height: 90vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.settings-subheading {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+#keybind-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+#keybind-list {
+    max-height: 260px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+}
+.keybind-group {
+    margin: 10px 0 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+.keybind-group:first-child { margin-top: 0; }
+.keybind-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+.keybind-label { min-width: 0; overflow-wrap: anywhere; }
+.keybind-btn {
+    flex: 0 0 96px;
+    padding: 4px 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+.keybind-btn:hover { border-color: var(--text-secondary); }
+.keybind-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.keybind-btn.capturing {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-style: italic;
+}
+#keybind-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+#keybind-msg {
+    min-width: 0;
+    font-size: 0.75rem;
+    color: #ff8a8a;
+    overflow-wrap: anywhere;
+}
+#keybind-reset {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+#keybind-reset:hover { color: var(--accent); border-color: var(--accent); }
+
+#help-footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
 }

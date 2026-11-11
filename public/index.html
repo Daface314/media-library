@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Content Security Policy: limits what resources/scripts can run (security) -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://cdn.myanimelist.net https://image.tmdb.org" />
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://*.anilist.co https://cdn.myanimelist.net https://image.tmdb.org" />
     <title>Media Library</title>
     <link rel="stylesheet" href="styles.css" />
 </head>
@@ -62,6 +62,7 @@
         <!-- Add Entry button pinned to sidebar bottom -->
         <button id="add-media-btn">+ Add Entry</button>
         <button id="settings-btn" title="Settings">⚙ Settings</button>
+        <button id="help-btn" title="Keyboard shortcuts (? or Ctrl+S)">⌨ Shortcuts</button>
 
     </aside>
 
@@ -91,6 +92,9 @@
 
         <!-- Genre filter dropdown — lives outside the header so it pushes the grid down when open -->
         <div id="genre-filter-dropdown" class="hidden">
+            <div id="genre-filter-search-row">
+                <input type="text" id="genre-filter-search" placeholder="Filter genres...  (↓ to browse, Enter to toggle the first match)" autocomplete="off" />
+            </div>
             <div id="genre-filter-mode-row">
                 <span class="genre-mode-label">Match:</span>
                 <button class="genre-mode-btn active" data-mode="and">ALL (AND)</button>
@@ -131,13 +135,13 @@
             </label>
 
             <!-- Auto-fill section — visible only when type is anime or manga -->
-            <div id="jikan-section" class="hidden">
-                <div class="field-group">Auto-fill from MyAnimeList
-                    <div id="jikan-search-row">
-                        <input type="text" id="jikan-query" placeholder="Search title to auto-fill..." autocomplete="off" />
-                        <button id="jikan-search-btn" type="button">Search</button>
+            <div id="anilist-section" class="hidden">
+                <div class="field-group">Auto-fill from AniList
+                    <div id="anilist-search-row">
+                        <input type="text" id="anilist-query" placeholder="Search title to auto-fill..." autocomplete="off" />
+                        <button id="anilist-search-btn" type="button">Search</button>
                     </div>
-                    <ul id="jikan-results" class="hidden"></ul>
+                    <ul id="anilist-results" class="hidden"></ul>
                 </div>
             </div>
 
@@ -152,7 +156,7 @@
                 </div>
             </div>
 
-            <!-- Title comes after auto-fill so it acts as an override when Jikan fills it in -->
+            <!-- Title comes after auto-fill so it acts as an override when AniList fills it in -->
             <label>Title
                 <input type="text" id="input-title" placeholder="e.g. Cowboy Bebop" />
             </label>
@@ -245,6 +249,18 @@
                 <input type="text" id="tmdb-key-input" placeholder="Paste your API key here..." />
             </label>
 
+            <!-- Key binding editor — rows are built by renderKeybindList() in renderer.ts -->
+            <div id="keybind-section">
+                <div class="settings-subheading">Keyboard Shortcuts
+                    <span class="label-hint">Click a key, then press the new one. Changes save instantly.</span>
+                </div>
+                <div id="keybind-list"></div>
+                <div id="keybind-footer">
+                    <span id="keybind-msg"></span>
+                    <button id="keybind-reset" type="button">Reset to defaults</button>
+                </div>
+            </div>
+
             <div id="settings-buttons">
                 <button id="settings-cancel">Cancel</button>
                 <button id="settings-save">Save</button>
@@ -258,6 +274,17 @@
     <!-- Clicking a card opens this. Content is built dynamically by openDetailModal(). -->
     <div id="detail-overlay" class="hidden">
         <div id="detail-modal"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════
+         KEYBOARD SHORTCUTS HELP (opens with ?)
+    ════════════════════════════════════════ -->
+    <div id="help-overlay" class="hidden">
+        <div id="help-modal">
+            <h3>Keyboard Shortcuts</h3>
+            <div id="help-body"></div>
+            <div id="help-footer">Rebind any of these in Settings (<span id="help-settings-key"></span>).</div>
+        </div>
     </div>
 
     <!-- Toast notification container — populated by showToast() in renderer.ts -->

@@ -59,8 +59,8 @@ contextBridge.exposeInMainWorld('api', {
     clearMediaFields: (id: number) =>
         ipcRenderer.invoke('clear-media-fields', id),
 
-    searchJikan: (mediaType: string, query: string) =>
-        ipcRenderer.invoke('search-jikan', mediaType, query),
+    searchAnilist: (mediaType: string, query: string) =>
+        ipcRenderer.invoke('search-anilist', mediaType, query),
 
     searchTmdb: (mediaType: string, query: string) =>
         ipcRenderer.invoke('search-tmdb', mediaType, query),

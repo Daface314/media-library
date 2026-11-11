@@ -13,6 +13,8 @@ Update this as the project grows.
 | Language     | **TypeScript**                  | JavaScript + type safety (catches bugs early)    |
 | UI           | **HTML + CSS**                  | Fully customizable, sprite-friendly              |
 | Database     | **SQLite** via `better-sqlite3` | Single file, no server, fast, offline            |
+| Auto-fill    | **AniList** (anime/manga), **TMDB** (movies/shows) | Covers, synopsis, year, genres, episode counts |
+| Packaging    | **electron-builder** + GitHub Actions | NSIS installer + portable `.exe` on tagged releases |
 
 ---
 
@@ -60,7 +62,7 @@ window.api.addMedia(...)  →  ipcRenderer.invoke(...)  →  ipcMain.handle(...)
                           ←  Promise resolves           ←  return db.addMedia(...)
 ```
 
-1. Renderer calls `window.api.addMedia(title, type, status, notes)`
+1. Renderer calls `window.api.addMedia(title, type, status, rating, notes)`
 2. Preload sends it as a named IPC message `'add-media'` to the main process
 3. Main process receives it, calls `db.addMedia(...)`, returns the result
 4. Renderer gets the result back as a resolved Promise
@@ -82,17 +84,20 @@ Nothing more. This is a security boundary.
 ```
 media-library/
 ├── public/                   Static assets (no compilation needed)
-│   ├── index.html            Main window layout (HTML structure)
+│   ├── index.html            Main window layout (HTML structure) + Content-Security-Policy
 │   └── styles.css            All visual styling (colors, layout, animations)
 │
 ├── src/
 │   ├── main/                 Main process code (Node.js / system access)
-│   │   ├── main.ts           App entry point — creates window, registers IPC handlers
+│   │   ├── main.ts           App entry point — creates window, registers IPC handlers,
+│   │   │                     AniList/TMDB requests (incl. the AniList rate-limit queue)
 │   │   ├── database.ts       All database logic — the MediaDatabase class
 │   │   └── preload.ts        IPC bridge — exposes window.api to the renderer
 │   │
 │   └── renderer/             Renderer process code (browser context)
-│       └── renderer.ts       All UI logic — rendering cards, handling clicks
+│       ├── renderer.ts       All UI logic — rendering cards, dialogs, filters, auto-fill,
+│       │                     and the keyboard layer
+│       └── globals.d.ts      Type declaration for window.api
 │
 ├── dist/                     Compiled JavaScript output (auto-generated, don't edit)
 │   ├── main/
@@ -104,6 +109,8 @@ media-library/
 │
 ├── package.json              Project metadata + npm scripts + dependency list
 ├── tsconfig.json             TypeScript compiler settings
+├── .github/workflows/        CI: release.yml builds and publishes on v* tags
+├── handoff.json              Detailed context dump for picking the project back up
 ├── TODO.md                   Your personal task notes
 └── ARCHITECTURE.md           This file
 ```
@@ -158,20 +165,96 @@ Example: user fills in the "Add Entry" modal and clicks Save.
 ```
 1. renderer.ts: saveNewEntry()
    ├── reads form values (title, type, status, notes, tags)
-   ├── calls window.api.addMedia(title, type, status, notes)
+   ├── calls window.api.addMedia(title, type, status, rating, notes)
    │
 2. preload.ts: ipcRenderer.invoke('add-media', ...)
    │   ↓ crosses the process boundary
 3. main.ts: ipcMain.handle('add-media', ...) → db.addMedia(...)
    │
 4. database.ts: addMedia()
-   ├── INSERT INTO media (title, type, status, notes)
+   ├── INSERT INTO media (title, type, status, rating, notes)
    └── returns the newly created MediaEntry (with auto-assigned id)
    │   ↓ result travels back up the chain
 5. renderer.ts: receives the new entry object
    ├── for each tag: calls window.api.addTagToMedia(entry.id, tagName)
+   ├── for cover/description/year/episodes: calls window.api.addMediaField(...)
    └── calls loadMedia() + loadGenres() to refresh the UI
 ```
+
+---
+
+## Auto-Fill APIs
+
+The Add/Edit dialog and a background refresh at startup fill in cover, synopsis, year,
+genres and episode/volume counts. These requests run in the **main process** (the renderer
+stays sandboxed), reached through IPC.
+
+| Type          | Source  | Key needed | IPC call                         |
+|---------------|---------|------------|----------------------------------|
+| Anime / manga | AniList (GraphQL, `graphql.anilist.co`) | No | `searchAnilist` (channel `search-anilist`) |
+| Movie / show  | TMDB    | Yes (Settings) | `searchTmdb`, `getTmdbTvDetails` |
+| Book          | —       | —          | none (no source)                 |
+
+Things worth knowing:
+
+- **AniList replaced Jikan** (a MyAnimeList wrapper) after Jikan's public API shut down in
+  Oct 2026. `search-anilist` returns objects shaped like Jikan's old results, so the renderer's
+  fill and refresh code didn't change.
+- **Rate limit: 30 requests/minute.** All AniList calls go through one queue in `main.ts`
+  (`anilistFetch`) that spaces them ~2.2s apart and retries HTTP 429 using the `Retry-After`
+  header. The startup refresh of a large library is therefore slow (about 2s per anime/manga
+  entry) but runs in the background.
+- Any failure returns an empty list and is logged to the terminal (`console.error`).
+- The refresh only overwrites auto-fill fields (`image_url`, `description`, `title_english`,
+  `year`, `episodes`, `volumes`); user data (rating, status, notes, `current_episode`) is kept,
+  and genres are only ever added.
+
+---
+
+## Content Security Policy
+
+`public/index.html` has a CSP `<meta>` tag that limits what the page can load. The important
+line for images is `img-src`, which must list every host that serves covers:
+
+```
+img-src 'self' https://*.anilist.co https://cdn.myanimelist.net https://image.tmdb.org
+```
+
+If a new cover source is added (or a CDN host changes), add it here. A missing host fails
+silently: the URL is saved correctly but the image never loads.
+
+---
+
+## Keyboard Navigation
+
+The whole app can be driven from the keyboard. It lives in one section of `renderer.ts`:
+a single document-level `keydown` listener (`handleKeydown`) decides what each key means from
+where focus is and which dialog is open.
+
+```
+key press
+  ├─ Settings waiting for a new binding?  → capture it
+  ├─ Ctrl+S → toggle the shortcut list      Ctrl+Enter → save the open dialog
+  ├─ Esc → handleEscape (closes dialogs, leaves text boxes, closes the genre filter)
+  ├─ a dialog is open → Tab trap / detail-view keys / Add-Edit keys
+  ├─ typing in a text box → left alone (a few keys move out of it)
+  ├─ genre filter focused → genre filter keys
+  ├─ a bound shortcut key → run the action (clicks the same button a mouse user would)
+  └─ otherwise → grid keys (arrows between cards, Enter/E/0-5/Delete on the selected card)
+```
+
+- **Rebindable keys:** the `KEY_ACTIONS` table lists every rebindable action with its default
+  key. Overrides are saved in `localStorage` (`media-library.keybinds`) and edited in the
+  Settings dialog. The `?` / Ctrl+S help list is generated from the current bindings.
+- **Fixed keys:** Esc, Tab, Space, Backspace, the arrows, Home/End/PgUp/PgDn, 0–5 (rating),
+  Ctrl+Enter and Ctrl+S.
+- **Add/Edit dialog:** ↑/↓ only ever move between fields; ←/→ step through lists (drop-down
+  value, stars, auto-fill results, genre dropdown); drop-downs open only on Enter.
+- **Focus bookkeeping:** `rememberFocus()` / `restoreFocus()` send focus back to the selected
+  card after any dialog closes, and `renderMediaGrid` re-focuses the same grid position after
+  the grid is rebuilt. Cards use a roving `tabindex` so Tab enters the grid once.
+- **Gotcha:** while the details view is open, focus stays on the card behind it, so scrolling
+  is done in JS (`handleDetailKeys`); otherwise the browser would scroll the grid behind it.
 
 ---
 

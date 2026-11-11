@@ -20,7 +20,7 @@ interface Window {
         updateRating:   (id: number, rating: number | null) => Promise<void>;
         clearMediaTags: (id: number) => Promise<void>;
         clearMediaFields: (id: number) => Promise<void>;
-        searchJikan: (mediaType: string, query: string) => Promise<any[]>;
+        searchAnilist: (mediaType: string, query: string) => Promise<any[]>;
         searchTmdb:  (mediaType: string, query: string) => Promise<{ results?: any[]; error?: string }>;
         getApiKey:        (keyName: string) => Promise<string | null>;
         setApiKey:        (keyName: string, value: string) => Promise<void>;
