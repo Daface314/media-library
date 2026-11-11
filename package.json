@@ -1,6 +1,6 @@
 {
   "name": "media-library",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Personal media tracking desktop application",
   "main": "dist/main/main.js",
   "scripts": {

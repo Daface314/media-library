@@ -51,8 +51,7 @@ Personal notes file. Add anything you want to track here.
 - [ ] Mouse delete confirmation (keyboard delete already needs two presses; the ✕ button deletes instantly)
 - [ ] Refresh option that skips entries that already have a cover/description/year (faster startup)
 - [ ] Keyboard way to browse the *whole* genre list in the Add/Edit dialog without typing (e.g. Alt+↓)
-- [ ] Bump the version in `package.json` (still `0.1.0`, but tags `v1.0.1`/`v1.0.2` exist) before the next release
-- [ ] Cut a new release — lots of changes since `v1.0.2` (AniList, keyboard navigation, rebinding)
+- [x] Release v1.1.0 (AniList, keyboard navigation, rebinding). Next time: bump `package.json` first, then tag.
 - [ ] Cover image from a local file (drag and drop an image onto a card)
 
 ---

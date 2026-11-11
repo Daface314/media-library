@@ -3,7 +3,7 @@
   "description": "Personal media tracking desktop app — Electron + TypeScript + SQLite. Tracks shows, anime, movies, books, and manga.",
   "location": "C:\\Users\\noahm\\OneDrive\\VSCode\\Projects\\media-library",
   "github": "https://github.com/Daface314/media-library",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "last_updated": "2026-11-10",
 
   "user_context": {
@@ -219,8 +219,8 @@
       "GitHub Actions builds on windows-latest and uploads both .exe files to the GitHub Release"
     ],
     "outputs": [
-      "release/Media Library Setup 0.1.0.exe — NSIS installer (recommended for end users)",
-      "release/Media Library 0.1.0.exe — Portable executable (no install needed)"
+      "release/Media Library Setup <version>.exe — NSIS installer (recommended for end users)",
+      "release/Media Library <version>.exe — Portable executable (no install needed)"
     ]
   },
 
@@ -231,11 +231,11 @@
     "GitHub auth: configured for Daface314; if wrong account appears, clear Windows Credential Manager",
     "HTTP 429 from AniList in the terminal = rate limit; the queue in main.ts retries automatically (look for 'AniList rate limit hit; retrying' warnings)",
     "Covers missing for AniList entries = check the CSP img-src in public/index.html",
-    "package.json version is still 0.1.0 although tags v1.0.1 and v1.0.2 exist — bump it before the next release so installer filenames match the tag"
+    "Keep package.json version in sync with the git tag before tagging a release (installer filenames come from package.json); it was 0.1.0 through v1.0.2 and is bumped to 1.1.0 for the next release"
   ],
 
   "status": {
-    "last_release": "v1.0.2 (latest git tag; package.json still says 0.1.0)",
-    "active_development": "Since v1.0.2: AniList replaced Jikan, keyboard navigation + rebindable keys, genre filter search, rating/sort/detail/edit features — no new tag/release created yet. Changes are uncommitted in the working tree."
+    "last_release": "v1.1.0",
+    "active_development": "v1.1.0 released: AniList replaced Jikan, keyboard navigation + rebindable keys, genre filter search, rating/sort/detail/edit features. Next work goes on top of main."
   }
 }
